@@ -5,6 +5,9 @@
     "emitDeclarationOnly": true,
     "noEmit": false,
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "live-canvas-chart": ["../live-canvas-chart/dist/index.d.ts"]
+    }
   }
 }

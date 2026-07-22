@@ -5,6 +5,9 @@
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
+    "paths": {
+      "live-canvas-chart": ["../live-canvas-chart/src/index.ts"]
+    },
     "jsx": "react-jsx",
     "isolatedModules": true,
     "esModuleInterop": true,
