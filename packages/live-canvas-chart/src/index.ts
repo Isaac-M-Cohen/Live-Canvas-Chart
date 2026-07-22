@@ -1088,8 +1088,13 @@ function zoom(state: ChartState, factor: number): void {
 function updateHeader(state: ChartState): void {
   const primary = state.data.series.find((line) => line.primary) || state.data.series[0];
   const point = primary?.points[primary.points.length - 1];
-  state.quote.textContent = point ? formatValue(state.data, point.value) : "—";
-  state.meta.textContent = [state.data.title, point ? formatTime(timestamp(point.timestamp), 60_000) : ""].filter(Boolean).join(" · ");
+  if (state.data.streamUrl) {
+    state.quote.textContent = point ? formatValue(state.data, point.value) : "—";
+    state.meta.textContent = [state.data.title, point ? formatTime(timestamp(point.timestamp), 60_000) : ""].filter(Boolean).join(" · ");
+  } else {
+    state.quote.textContent = state.data.title || primary?.name || "Chart";
+    state.meta.textContent = point ? formatTime(timestamp(point.timestamp), 60_000) : "";
+  }
   state.canvas.setAttribute("aria-label", `${state.data.title || primary?.name || "Time series"} chart`);
 }
 

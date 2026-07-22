@@ -99,6 +99,8 @@ Markers support `circle`, `square`, `diamond`, `triangle-up`, and `triangle-down
 
 Pointer movement is drawn on a separate transparent Canvas layer, so static lines and large marker collections are not repainted on every mouse event. The endpoint marker is reserved for charts connected to `streamUrl`; static charts end with the line itself.
 
+Static chart headers display the chart title instead of an arbitrary final value. Charts connected to `streamUrl` retain the live-value headline and title metadata.
+
 For ordinary records, `pointsFromRecords()` and `pointOverlaysFromRecords()` map column names or accessor functions into the chart schema. They have Python equivalents, so dataframe-like data does not need to be manually reshaped.
 
 ## Web Component

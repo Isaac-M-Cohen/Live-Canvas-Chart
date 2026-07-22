@@ -28,5 +28,6 @@ chart.append("Price", { timestamp: new Date().toISOString(), value: 118_250.42 }
 ```
 
 Static hover runs on a separate Canvas layer. Its vertical crosshair reports all visible series together and activates point-overlay details by timestamp, independent of pointer height.
+Static headers lead with the chart title; `streamUrl` charts lead with the latest live value.
 
 For a custom element, import `live-canvas-chart/web-component` and use `<live-canvas-chart>`.

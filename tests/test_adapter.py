@@ -99,6 +99,13 @@ def test_static_charts_do_not_draw_the_stream_endpoint_marker() -> None:
     assert "if (data.streamUrl && current" in source
 
 
+def test_static_chart_header_shows_title_instead_of_latest_value() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+
+    assert "if (state.data.streamUrl)" in source
+    assert 'state.quote.textContent = state.data.title || primary?.name || "Chart"' in source
+
+
 def test_plotly_marker_traces_become_hoverable_point_overlays() -> None:
     figure = Figure(
         {
