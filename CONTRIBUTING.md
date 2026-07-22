@@ -1,8 +1,9 @@
 # Contributing
 
-1. Create a virtual environment and install `pip install -e ".[devel]"`.
-2. Run `npm ci && npm run build` in `streamlit_live_canvas/frontend`.
+1. Run `npm install`, `npm run typecheck`, and `npm run build` from the repository root.
+2. Create a virtual environment and install `pip install -e ".[devel]"`.
 3. Run `pytest -q` from the repository root.
-4. Open `streamlit run example.py` and verify hover, legend toggles, Fit, and both zoom buttons.
+4. Serve `examples/vanilla.html` and verify direct `append()` updates.
+5. Open `streamlit run example.py` and verify hover, legend toggles, Fit, and both zoom buttons.
 
-Keep the Python payload schema backward compatible. New rendering features should work for both fixed series and points appended from a WebSocket.
+Keep `ChartData` backward compatible. New rendering features must work in the core before adapters expose them.

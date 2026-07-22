@@ -13,14 +13,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: streamlit_live_canvas/frontend/package-lock.json
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
       - name: Build frontend
-        working-directory: streamlit_live_canvas/frontend
-        run: npm ci && npm run build
+        run: npm ci && npm run typecheck && npm run build
       - name: Install package
         run: pip install -e ".[devel]"
       - name: Test

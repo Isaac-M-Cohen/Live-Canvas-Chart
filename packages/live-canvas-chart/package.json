@@ -1,0 +1,38 @@
+{
+  "name": "live-canvas-chart",
+  "version": "0.1.0",
+  "description": "A framework-neutral Canvas chart engine for static and high-frequency streaming time series.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Isaac Cohen",
+  "homepage": "https://github.com/Isaac-M-Cohen/Live-Canvas-Chart",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Isaac-M-Cohen/Live-Canvas-Chart.git",
+    "directory": "packages/live-canvas-chart"
+  },
+  "files": ["dist"],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./web-component": {
+      "types": "./dist/web-component.d.ts",
+      "import": "./dist/web-component.js"
+    }
+  },
+  "scripts": {
+    "build": "npm run clean && vite build && tsc -p tsconfig.build.json",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}

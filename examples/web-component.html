@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Canvas Chart · Web Component</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      body { background: #090d10; margin: 0; padding: 40px 24px; }
+      live-canvas-chart { height: 480px; margin: 0 auto; max-width: 1100px; }
+    </style>
+  </head>
+  <body>
+    <live-canvas-chart></live-canvas-chart>
+    <script type="module">
+      import "../packages/live-canvas-chart/dist/web-component.js";
+
+      const now = Date.now();
+      const element = document.querySelector("live-canvas-chart");
+      element.data = {
+        title: "Web Component",
+        valueFormat: "number",
+        series: [{
+          name: "Signal",
+          color: "#38d6aa",
+          primary: true,
+          fill: true,
+          points: Array.from({ length: 60 }, (_, index) => ({
+            timestamp: new Date(now - (59 - index) * 60_000).toISOString(),
+            value: 100 + Math.sin(index / 5) * 4,
+          })),
+        }],
+      };
+    </script>
+  </body>
+</html>

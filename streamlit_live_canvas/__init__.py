@@ -35,81 +35,8 @@ class Series(TypedDict, total=False):
     show_markers: bool
 
 
-_COMPONENT_HTML = """
-<section class="slc-chart">
-  <header class="slc-head">
-    <div class="slc-quote">
-      <strong class="slc-value">—</strong>
-      <span class="slc-meta"></span>
-    </div>
-    <div class="slc-controls" aria-label="Chart zoom controls">
-      <button type="button" data-action="zoom-out" aria-label="Zoom out">−</button>
-      <button type="button" data-action="fit">Fit</button>
-      <button type="button" data-action="zoom-in" aria-label="Zoom in">+</button>
-    </div>
-  </header>
-  <div class="slc-legend" aria-label="Series visibility"></div>
-  <div class="slc-stage">
-    <canvas class="slc-canvas" role="img"></canvas>
-    <div class="slc-tooltip" hidden></div>
-  </div>
-  <footer class="slc-foot">
-    <span class="slc-status"></span>
-    <span>Hover to inspect · buttons zoom time</span>
-  </footer>
-</section>
-"""
-
-
-_COMPONENT_CSS = """
-:host { display: block; width: 100%; }
-* { box-sizing: border-box; }
-.slc-chart {
-  background: #090d10;
-  color: #d8dee6;
-  display: grid;
-  font-family: var(--st-font, Inter, ui-sans-serif, system-ui, sans-serif);
-  grid-template-rows: 42px 0 minmax(160px, 1fr) 24px;
-  height: 100%;
-  min-height: 220px;
-  overflow: hidden;
-  width: 100%;
-}
-.slc-chart[data-has-legend="true"] { grid-template-rows: 42px 30px minmax(160px, 1fr) 24px; }
-.slc-head { align-items: center; display: flex; gap: 12px; min-width: 0; padding: 0 12px; }
-.slc-quote { align-items: baseline; display: flex; gap: 9px; min-width: 0; overflow: hidden; }
-.slc-value {
-  color: #f4f7fa; font-size: 23px; font-variant-numeric: tabular-nums;
-  font-weight: 720; letter-spacing: -.025em; white-space: nowrap;
-}
-.slc-meta { color: #7f8995; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slc-controls { display: flex; gap: 3px; margin-left: auto; }
-.slc-controls button, .slc-legend button {
-  appearance: none; background: transparent; border: 0; border-radius: 5px; color: #8e98a4;
-  cursor: pointer; font: 600 11px/26px inherit; height: 26px; padding: 0 7px;
-}
-.slc-controls button { min-width: 27px; }
-.slc-controls button:hover, .slc-controls button:focus-visible,
-.slc-legend button:hover, .slc-legend button:focus-visible { background: rgba(255,255,255,.07); color: #f4f7fa; outline: none; }
-.slc-legend { align-items: center; display: none; gap: 3px; overflow-x: auto; padding: 0 9px; scrollbar-width: none; white-space: nowrap; }
-.slc-chart[data-has-legend="true"] .slc-legend { display: flex; }
-.slc-legend button { align-items: center; display: inline-flex; gap: 6px; flex: 0 0 auto; }
-.slc-legend button::before { background: var(--series-color); border-radius: 50%; content: ""; height: 7px; width: 7px; }
-.slc-legend button[data-hidden="true"] { opacity: .38; text-decoration: line-through; }
-.slc-stage { min-height: 0; position: relative; }
-.slc-canvas { display: block; height: 100%; touch-action: pan-y; width: 100%; }
-.slc-tooltip {
-  background: rgba(17,22,27,.95); border: 1px solid rgba(255,255,255,.09); border-radius: 6px;
-  color: #eef2f6; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.45;
-  max-width: 260px; padding: 6px 8px; pointer-events: none; position: absolute;
-  transform: translate(-50%, -100%); white-space: nowrap; z-index: 2;
-}
-.slc-foot { align-items: center; color: #626d78; display: flex; font-size: 10px; justify-content: space-between; padding: 0 12px; }
-.slc-status::before { background: #71808f; border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 6px; width: 6px; }
-.slc-status[data-state="live"]::before { background: #38d6aa; }
-.slc-status[data-state="offline"]::before { background: #ff6685; }
-@media (max-width: 560px) { .slc-meta, .slc-foot span:last-child { display: none; } }
-"""
+_COMPONENT_HTML = """<div class="streamlit-live-canvas-root"></div>"""
+_COMPONENT_CSS = """:host { display: block; height: 100%; width: 100%; }"""
 
 
 _component: Any | None = None

@@ -1,0 +1,38 @@
+{
+  "name": "live-canvas-chart-react",
+  "version": "0.1.0",
+  "description": "React adapter for Live Canvas Chart.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Isaac Cohen",
+  "files": ["dist"],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "npm run clean && vite build && tsc -p tsconfig.build.json",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "live-canvas-chart": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "rimraf": "^6.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}

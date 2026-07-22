@@ -1,0 +1,14 @@
+{
+  "name": "live-canvas-chart-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "streamlit_live_canvas/frontend"
+  ],
+  "scripts": {
+    "build": "npm run build -w live-canvas-chart && npm run build -w live-canvas-chart-react && npm run build -w streamlit_live_canvas",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  }
+}

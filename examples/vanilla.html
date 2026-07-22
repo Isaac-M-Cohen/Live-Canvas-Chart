@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Canvas Chart · Vanilla JavaScript</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      body { background: #090d10; margin: 0; min-height: 100vh; }
+      main { margin: 0 auto; max-width: 1200px; padding: 56px 24px; }
+      h1 { color: #f4f7fa; font-size: clamp(32px, 6vw, 72px); letter-spacing: -.05em; margin: 0; }
+      p { color: #7f8995; margin: 12px 0 36px; }
+      #chart { height: 520px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Live Canvas Chart</h1>
+      <p>Framework-neutral rendering. Static history, then direct point updates.</p>
+      <div id="chart"></div>
+    </main>
+    <script type="module">
+      import { LiveCanvasChart } from "../packages/live-canvas-chart/dist/index.js";
+
+      const now = Date.now();
+      const points = Array.from({ length: 180 }, (_, index) => ({
+        timestamp: new Date(now - (179 - index) * 60_000).toISOString(),
+        value: 63_000 + index * 1.8 + Math.sin(index / 8) * 82,
+      }));
+      const chart = new LiveCanvasChart(document.querySelector("#chart"), {
+        title: "BTC demonstration",
+        valueFormat: "currency",
+        windowMs: 3 * 60 * 60 * 1_000,
+        series: [{ name: "Price", color: "#ffad55", points, primary: true, fill: true, width: 2.4 }],
+      });
+
+      setInterval(() => {
+        const previous = points.at(-1).value;
+        const point = { timestamp: new Date().toISOString(), value: previous + (Math.random() - .5) * 16 };
+        points.push(point);
+        chart.append("Price", point);
+      }, 700);
+    </script>
+  </body>
+</html>

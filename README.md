@@ -1,101 +1,151 @@
-# Streamlit Live Canvas
+# Live Canvas Chart
 
-[![CI](https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas/actions/workflows/ci.yml/badge.svg)](https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas/actions/workflows/ci.yml)
+[![CI](https://github.com/Isaac-M-Cohen/Live-Canvas-Chart/actions/workflows/ci.yml/badge.svg)](https://github.com/Isaac-M-Cohen/Live-Canvas-Chart/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-38d6aa.svg)](LICENSE)
 
-A low-chrome, high-frequency Canvas chart component for Streamlit. It renders ordinary static time series and can append WebSocket points without redrawing the Streamlit page.
+A framework-neutral Canvas chart engine for fixed history and high-frequency streaming time series.
+
+Live Canvas Chart keeps incoming points in the browser, draws with HTML Canvas, and updates without rebuilding the surrounding application. The same engine powers plain JavaScript, a Web Component, React, and Streamlit.
+
+## Packages
+
+| Package | Use it from | Status |
+| --- | --- | --- |
+| `live-canvas-chart` | JavaScript, TypeScript, Vue, Svelte, Angular, Electron | Core |
+| `live-canvas-chart/web-component` | Plain HTML and any custom-element host | Core |
+| `live-canvas-chart-react` | React and Next.js client components | Adapter |
+| `streamlit-live-canvas` | Python and Streamlit | Adapter |
 
 ## Features
 
-- Static and streaming data use the same public API
-- Smooth Canvas lines, filled areas, markers, bars, multiple axes, and stacked panels
+- Static data and streaming data use the same schema
+- Direct `append()` updates without framework rerenders
+- Optional WebSocket ingestion
+- Smooth Canvas lines, fills, markers, bars, multiple axes, and stacked panels
 - Automatic visible-range scaling
-- Hover inspection and explicit zoom buttons; trackpad zoom is disabled
-- Clickable series legend for overlays
-- Horizontal rules, vertical event lines, and shaded time bands
-- Optional adapter for existing Plotly figures
-- No directional arrows or trading opinions in the renderer
+- Button-only time zoom, with trackpad zoom disabled
+- Hover inspection and toggleable overlays
+- Horizontal rules, event lines, and shaded time bands
+- Web Component and typed React APIs
+- Plotly migration adapter for Streamlit applications
 
-## Install
+## Core JavaScript API
 
-```bash
-pip install "streamlit-live-canvas @ git+https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas.git"
-```
-
-For local development:
+Build the workspace first:
 
 ```bash
-pip install -e .
-cd streamlit_live_canvas/frontend
+git clone https://github.com/Isaac-M-Cohen/Live-Canvas-Chart.git
+cd Live-Canvas-Chart
 npm install
 npm run build
 ```
 
-## Static data
+```ts
+import { LiveCanvasChart } from "live-canvas-chart";
+
+const chart = new LiveCanvasChart(document.querySelector("#chart")!, {
+  title: "BTC perpetual",
+  valueFormat: "currency",
+  series: [
+    {
+      name: "Price",
+      color: "#ffad55",
+      primary: true,
+      fill: true,
+      points: history,
+    },
+  ],
+});
+
+chart.append("Price", {
+  timestamp: new Date().toISOString(),
+  value: 118_250.42,
+});
+```
+
+The public instance methods are `setData`, `append`, `fit`, `zoomIn`, `zoomOut`, and `destroy`.
+
+## Web Component
+
+```ts
+import "live-canvas-chart/web-component";
+
+const element = document.querySelector("live-canvas-chart");
+element.data = chartData;
+element.appendPoints("Price", nextPoint);
+```
+
+```html
+<live-canvas-chart style="display:block;height:480px"></live-canvas-chart>
+```
+
+This is the simplest integration for Vue, Svelte, Angular, server-rendered pages, and ordinary HTML applications.
+
+## React
+
+```tsx
+import { LiveCanvas } from "live-canvas-chart-react";
+
+export function PriceChart({ data }) {
+  return <LiveCanvas data={data} height={480} />;
+}
+```
+
+The component exposes an imperative ref with `append`, `fit`, `zoomIn`, and `zoomOut`, allowing high-frequency points to bypass React state updates.
+
+## Streamlit
+
+Install the Python adapter directly from GitHub:
+
+```bash
+pip install "streamlit-live-canvas @ git+https://github.com/Isaac-M-Cohen/Live-Canvas-Chart.git"
+```
 
 ```python
-from datetime import datetime, timedelta, timezone
-
-import streamlit as st
 from streamlit_live_canvas import chart
 
-now = datetime.now(timezone.utc)
-points = [
-    {"timestamp": (now + timedelta(minutes=i)).isoformat(), "value": 100 + i * 0.4}
-    for i in range(60)
-]
-
 chart(
-    [{"name": "Price", "color": "#38d6aa", "points": points, "primary": True, "fill": True}],
-    key="static-price",
-    title="Static price history",
+    [{"name": "Price", "color": "#38d6aa", "points": history, "primary": True}],
+    key="btc-price",
+    title="BTC history",
     value_format="currency",
 )
 ```
 
-## Live WebSocket data
+The Streamlit adapter also offers `plotly_chart(existing_figure, key="migrated")` for migrating common Plotly time-series figures to the Canvas engine.
 
-Pass the same starting series plus `stream_url`. The socket may emit one point,
-a list of points, or a named-series batch:
+## Generic WebSocket protocol
+
+A stream may emit one point:
+
+```json
+{"timestamp":"2026-07-22T19:20:05Z","value":119284.25}
+```
+
+It may also emit a list of points or a named-series batch:
 
 ```json
 {"series":"Price","points":[{"timestamp":"2026-07-22T19:20:05Z","value":119284.25}]}
 ```
 
-```python
-chart(
-    [{"name": "Price", "color": "#ffad55", "points": history, "primary": True, "fill": True}],
-    key="live-price",
-    title="Live price",
-    value_format="currency",
-    window_ms=3 * 60 * 60 * 1000,
-    stream_url="ws://localhost:8765/prices",
-    stream_series="Price",
-)
+## Repository layout
+
+```text
+packages/live-canvas-chart/  Framework-neutral engine and Web Component
+packages/react/              React adapter
+streamlit_live_canvas/       Python and Streamlit adapter
+examples/                    Browser examples
 ```
-
-The browser appends accepted points directly to its in-memory series. It does not wait for a Streamlit rerun.
-
-## Plotly migration adapter
-
-```python
-from streamlit_live_canvas import plotly_chart
-
-plotly_chart(existing_figure, key="migrated", height=500)
-```
-
-The adapter covers the common time-series subset: scatter lines, filled areas,
-markers, bars, candlestick close paths, subplot domains, rules, and time bands.
-It intentionally does not attempt to reproduce every Plotly chart type.
 
 ## Development
 
 ```bash
-cd streamlit_live_canvas/frontend
+npm install
 npm run typecheck
 npm run build
-cd ../..
+pip install -e ".[devel]"
+pytest -q
 streamlit run example.py
 ```
 
-Licensed under MIT. See [LICENSE](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the release checklist. Licensed under the [MIT License](LICENSE).

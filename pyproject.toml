@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "streamlit-live-canvas"
 version = "0.1.0"
-description = "A high-performance Streamlit Canvas chart for static and live time-series data"
+description = "The Streamlit adapter for the Live Canvas Chart engine"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,9 +14,9 @@ authors = [{ name = "Isaac Cohen" }]
 dependencies = ["streamlit >= 1.51"]
 
 [project.urls]
-Homepage = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas"
-Repository = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas.git"
-Issues = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas/issues"
+Homepage = "https://github.com/Isaac-M-Cohen/Live-Canvas-Chart"
+Repository = "https://github.com/Isaac-M-Cohen/Live-Canvas-Chart.git"
+Issues = "https://github.com/Isaac-M-Cohen/Live-Canvas-Chart/issues"
 
 [project.optional-dependencies]
 devel = [
