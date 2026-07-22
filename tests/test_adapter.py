@@ -81,13 +81,22 @@ def test_latest_point_has_a_right_edge_gutter() -> None:
     assert "const timeWidth = Math.max(1, plotWidth - 8)" in source
 
 
-def test_hover_tracks_the_closest_visible_rendered_line() -> None:
+def test_hover_uses_a_separate_layer_and_aggregates_visible_lines() -> None:
     source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
 
+    assert 'class="slc-hover-canvas"' in source
+    assert "function renderHover(state: ChartState)" in source
+    assert "scheduleHover(state)" in source
     assert "pointOnTrace(trace.coordinates, px)" in source
-    assert "Math.abs(state.pointerY - point[1])" in source
-    assert "chosen.trace.line.name" in source
-    assert "context.arc(px, chosen.py, 4" in source
+    assert "traceValues.push" in source
+    assert "showAggregateTooltip" in source
+    assert 'heading.textContent = "Graph values"' in source
+
+
+def test_static_charts_do_not_draw_the_stream_endpoint_marker() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+
+    assert "if (data.streamUrl && current" in source
 
 
 def test_plotly_marker_traces_become_hoverable_point_overlays() -> None:
@@ -158,11 +167,13 @@ def test_record_conversion_helpers_map_dataset_fields() -> None:
     assert overlays[0]["fields"] == [{"label": "Confidence", "value": 0.91}]
 
 
-def test_point_overlays_have_priority_hover_and_safe_custom_tooltips() -> None:
+def test_point_overlays_use_crosshair_x_and_safe_custom_tooltips() -> None:
     source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
 
     assert "pointOverlaysFromRecords" in source
-    assert "hoveredOverlay" in source
-    assert "showOverlayTooltip" in source
+    assert "nearestOverlaysAtX" in source
+    assert "Math.abs(nearest.px - px) > 10" in source
+    assert "Math.hypot" not in source
+    assert "showAggregateTooltip" in source
     assert "textContent = overlay.description" in source
     assert "normaliseFields(overlay.fields)" in source

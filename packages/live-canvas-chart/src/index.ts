@@ -78,11 +78,28 @@ export type ChartData = {
   pointOverlays?: PointOverlay[];
   emptyMessage?: string;
 };
+type RenderedTrace = {
+  line: Series;
+  panel: { id: string; top: number; bottom: number };
+  domain: [number, number];
+  coordinates: Array<[number, number]>;
+};
+type RenderedOverlay = { overlay: PointOverlay; px: number; py: number };
+type RenderGeometry = {
+  plot: { left: number; right: number; top: number; bottom: number };
+  start: number;
+  span: number;
+  timeWidth: number;
+  traces: RenderedTrace[];
+  overlays: RenderedOverlay[];
+};
 type ChartState = {
   parent: ChartTarget;
   root: HTMLElement;
   canvas: HTMLCanvasElement;
   context: CanvasRenderingContext2D;
+  hoverCanvas: HTMLCanvasElement;
+  hoverContext: CanvasRenderingContext2D;
   tooltip: HTMLElement;
   quote: HTMLElement;
   meta: HTMLElement;
@@ -96,6 +113,8 @@ type ChartState = {
   width: number;
   height: number;
   frame: number | null;
+  hoverFrame: number | null;
+  geometry: RenderGeometry | null;
   resizeObserver: ResizeObserver;
   socket: WebSocket | null;
   reconnectTimer: number | null;
@@ -118,6 +137,7 @@ export const LIVE_CANVAS_HTML = `
   <div class="slc-legend" aria-label="Series visibility"></div>
   <div class="slc-stage">
     <canvas class="slc-canvas" role="img"></canvas>
+    <canvas class="slc-hover-canvas" aria-hidden="true"></canvas>
     <div class="slc-tooltip" hidden></div>
   </div>
   <footer class="slc-foot">
@@ -163,7 +183,9 @@ export const LIVE_CANVAS_CSS = `
 .slc-legend button::before { background: var(--series-color); border-radius: 50%; content: ""; height: 7px; width: 7px; }
 .slc-legend button[data-hidden="true"] { opacity: .38; text-decoration: line-through; }
 .slc-stage { min-height: 0; position: relative; }
-.slc-canvas { display: block; height: 100%; touch-action: pan-y; width: 100%; }
+.slc-canvas, .slc-hover-canvas { display: block; height: 100%; inset: 0; position: absolute; width: 100%; }
+.slc-canvas { touch-action: pan-y; }
+.slc-hover-canvas { pointer-events: none; }
 .slc-tooltip {
   background: rgba(17,22,27,.95); border: 1px solid rgba(255,255,255,.09); border-radius: 6px;
   color: #eef2f6; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.45;
@@ -176,6 +198,11 @@ export const LIVE_CANVAS_CSS = `
 .slc-tooltip-field { display: flex; gap: 12px; justify-content: space-between; min-width: 150px; }
 .slc-tooltip-field > span:first-child { color: var(--live-canvas-muted, #8e98a4); }
 .slc-tooltip-field > span:last-child { font-weight: 600; overflow-wrap: anywhere; text-align: right; }
+.slc-tooltip-field[data-series="true"] > span:first-child::before {
+  background: var(--field-color); border-radius: 50%; content: ""; display: inline-block;
+  height: 6px; margin-right: 6px; vertical-align: 1px; width: 6px;
+}
+.slc-tooltip-section-label { color: #8e98a4; display: block; font-size: 9px; font-weight: 700; letter-spacing: .08em; margin-top: 6px; text-transform: uppercase; }
 .slc-tooltip[data-placement="below"] { transform: translate(-50%, 10px); }
 .slc-foot { align-items: center; color: var(--live-canvas-muted, #626d78); display: flex; font-size: 10px; justify-content: space-between; padding: 0 12px; }
 .slc-status::before { background: #71808f; border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 6px; width: 6px; }
@@ -465,37 +492,56 @@ function pointOnTrace(
   if (targetX < first[0] || targetX > last[0]) return null;
   if (targetX === first[0]) return first;
 
-  let start = first;
-  for (let index = 1; index < coordinates.length - 1; index += 1) {
-    const control = coordinates[index];
-    const next = coordinates[index + 1];
+  let curveIndex = -1;
+  let curveLow = 1;
+  let curveHigh = coordinates.length - 2;
+  while (curveLow <= curveHigh) {
+    const middle = (curveLow + curveHigh) >> 1;
+    const endX = (coordinates[middle][0] + coordinates[middle + 1][0]) / 2;
+    if (targetX <= endX) {
+      curveIndex = middle;
+      curveHigh = middle - 1;
+    } else {
+      curveLow = middle + 1;
+    }
+  }
+  if (curveIndex >= 1) {
+    const control = coordinates[curveIndex];
+    const next = coordinates[curveIndex + 1];
+    const start: [number, number] = curveIndex === 1
+      ? first
+      : [
+        (coordinates[curveIndex - 1][0] + control[0]) / 2,
+        (coordinates[curveIndex - 1][1] + control[1]) / 2,
+      ];
     const end: [number, number] = [
       (control[0] + next[0]) / 2,
       (control[1] + next[1]) / 2,
     ];
-    if (targetX <= end[0]) {
-      let low = 0;
-      let high = 1;
-      for (let step = 0; step < 16; step += 1) {
-        const middle = (low + high) / 2;
-        const inverse = 1 - middle;
-        const x = inverse * inverse * start[0]
-          + 2 * inverse * middle * control[0]
-          + middle * middle * end[0];
-        if (x < targetX) low = middle;
-        else high = middle;
-      }
-      const progress = (low + high) / 2;
-      const inverse = 1 - progress;
-      return [
-        targetX,
-        inverse * inverse * start[1]
-          + 2 * inverse * progress * control[1]
-          + progress * progress * end[1],
-      ];
+    let low = 0;
+    let high = 1;
+    for (let step = 0; step < 16; step += 1) {
+      const middle = (low + high) / 2;
+      const inverse = 1 - middle;
+      const x = inverse * inverse * start[0]
+        + 2 * inverse * middle * control[0]
+        + middle * middle * end[0];
+      if (x < targetX) low = middle;
+      else high = middle;
     }
-    start = end;
+    const progress = (low + high) / 2;
+    const inverse = 1 - progress;
+    return [
+      targetX,
+      inverse * inverse * start[1]
+        + 2 * inverse * progress * control[1]
+        + progress * progress * end[1],
+    ];
   }
+  const penultimate = coordinates[coordinates.length - 2];
+  const start: [number, number] = coordinates.length === 2
+    ? first
+    : [(penultimate[0] + last[0]) / 2, (penultimate[1] + last[1]) / 2];
   const width = last[0] - start[0];
   const progress = width > 0 ? (targetX - start[0]) / width : 1;
   return [
@@ -583,43 +629,85 @@ function positionTooltip(state: ChartState, px: number, py: number): void {
   state.tooltip.hidden = false;
 }
 
-function showOverlayTooltip(
+function tooltipFieldRow(
+  data: ChartData,
+  field: TooltipField,
+  color?: string,
+): HTMLElement {
+  const row = document.createElement("span");
+  row.className = "slc-tooltip-field";
+  const label = document.createElement("span");
+  const value = document.createElement("span");
+  label.textContent = field.label;
+  value.textContent = formatTooltipField(data, field);
+  row.append(label, value);
+  if (color) {
+    row.dataset.series = "true";
+    row.style.setProperty("--field-color", color);
+  }
+  return row;
+}
+
+function showAggregateTooltip(
   state: ChartState,
-  overlay: PointOverlay,
+  time: number,
   span: number,
   px: number,
   py: number,
+  traceValues: Array<{ trace: RenderedTrace; value: number }>,
+  overlays: PointOverlay[] = [],
 ): void {
-  const title = document.createElement("span");
-  title.className = "slc-tooltip-title";
-  title.textContent = overlay.label || overlay.kind || "Event";
-  const children: HTMLElement[] = [title];
-  if (overlay.description) {
-    const description = document.createElement("span");
-    description.className = "slc-tooltip-description";
-    description.textContent = overlay.description;
-    children.push(description);
+  const children: HTMLElement[] = [];
+  if (overlays.length) {
+    for (const [index, overlay] of overlays.entries()) {
+      if (index > 0) {
+        const separator = document.createElement("span");
+        separator.className = "slc-tooltip-section-label";
+        separator.textContent = "Also at this time";
+        children.push(separator);
+      }
+      const title = document.createElement("span");
+      title.className = "slc-tooltip-title";
+      title.textContent = overlay.label || overlay.kind || "Event";
+      children.push(title);
+      if (overlay.description) {
+        const description = document.createElement("span");
+        description.className = "slc-tooltip-description";
+        description.textContent = overlay.description;
+        children.push(description);
+      }
+      const fields: TooltipField[] = [];
+      if (overlay.showTimestamp !== false) fields.push({ label: "Time", value: formatTime(time, span) });
+      if (overlay.showValue !== false) fields.push({ label: "Value", value: formatValue(state.data, overlay.value) });
+      fields.push(...normaliseFields(overlay.fields));
+      if (fields.length) {
+        const fieldList = document.createElement("span");
+        fieldList.className = "slc-tooltip-fields";
+        for (const field of fields) fieldList.append(tooltipFieldRow(state.data, field));
+        children.push(fieldList);
+      }
+    }
+  } else {
+    const title = document.createElement("span");
+    title.className = "slc-tooltip-title";
+    title.textContent = formatTime(time, span);
+    children.push(title);
   }
-  const fields: TooltipField[] = [];
-  if (overlay.showTimestamp !== false) {
-    fields.push({ label: "Time", value: formatTime(timestamp(overlay.timestamp), span) });
-  }
-  if (overlay.showValue !== false) {
-    fields.push({ label: "Value", value: formatValue(state.data, overlay.value) });
-  }
-  fields.push(...normaliseFields(overlay.fields));
-  if (fields.length) {
+  if (traceValues.length) {
+    if (overlays.length) {
+      const heading = document.createElement("span");
+      heading.className = "slc-tooltip-section-label";
+      heading.textContent = "Graph values";
+      children.push(heading);
+    }
     const fieldList = document.createElement("span");
     fieldList.className = "slc-tooltip-fields";
-    for (const field of fields) {
-      const row = document.createElement("span");
-      row.className = "slc-tooltip-field";
-      const label = document.createElement("span");
-      const value = document.createElement("span");
-      label.textContent = field.label;
-      value.textContent = formatTooltipField(state.data, field);
-      row.append(label, value);
-      fieldList.append(row);
+    for (const item of traceValues) {
+      fieldList.append(tooltipFieldRow(
+        state.data,
+        { label: item.trace.line.name, value: formatValue(state.data, item.value) },
+        item.trace.line.color,
+      ));
     }
     children.push(fieldList);
   }
@@ -657,6 +745,9 @@ function render(state: ChartState): void {
   );
   const dataExtent = extent(visibleSeries, visibleOverlays);
   if (!dataExtent) {
+    state.geometry = null;
+    state.hoverContext.clearRect(0, 0, width, height);
+    state.tooltip.hidden = true;
     context.fillStyle = MUTED;
     context.font = "12px sans-serif";
     context.fillText(data.emptyMessage || "No chart data", 14, 24);
@@ -703,13 +794,8 @@ function render(state: ChartState): void {
   context.beginPath();
   context.rect(plot.left, plot.top, plotWidth, plot.bottom - plot.top);
   context.clip();
-  const renderedTraces: Array<{
-    line: Series;
-    panel: { id: string; top: number; bottom: number };
-    domain: [number, number];
-    coordinates: Array<[number, number]>;
-  }> = [];
-  const renderedOverlays: Array<{ overlay: PointOverlay; px: number; py: number }> = [];
+  const renderedTraces: RenderedTrace[] = [];
+  const renderedOverlays: RenderedOverlay[] = [];
   for (const band of data.bands || []) {
     const left = x(band.start);
     const right = x(band.end);
@@ -817,7 +903,7 @@ function render(state: ChartState): void {
 
   const primary = visibleSeries.find((line) => line.primary) || visibleSeries[0];
   const current = primary?.points[primary.points.length - 1];
-  if (current && timestamp(current.timestamp) >= start && timestamp(current.timestamp) <= end) {
+  if (data.streamUrl && current && timestamp(current.timestamp) >= start && timestamp(current.timestamp) <= end) {
     const panel = panels.find((item) => item.id === (primary.panel || "y")) || panels[0];
     const domain = visibleDomain(visibleSeries, panel.id, primary.axis || "main", start, end, visibleOverlays);
     const px = x(current.timestamp);
@@ -840,83 +926,122 @@ function render(state: ChartState): void {
     context.restore();
   }
 
-  if (
-    state.pointerX !== null
-    && state.pointerY !== null
-    && state.pointerX >= plot.left
-    && state.pointerX <= plot.left + timeWidth
-    && state.pointerY >= plot.top
-    && state.pointerY <= plot.bottom
-  ) {
-    const px = state.pointerX;
-    const hoveredOverlay = renderedOverlays
-      .map((item) => ({
-        ...item,
-        distance: Math.hypot(state.pointerX! - item.px, state.pointerY! - item.py),
-        hitRadius: Math.max(9, Number(item.overlay.size || 10) / 2 + 5),
-      }))
-      .filter((item) => item.distance <= item.hitRadius)
-      .sort((left, right) => left.distance - right.distance)[0];
-    if (hoveredOverlay) {
-      context.save();
-      context.strokeStyle = "rgba(216,222,230,.32)";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.moveTo(hoveredOverlay.px, plot.top);
-      context.lineTo(hoveredOverlay.px, plot.bottom);
-      context.stroke();
-      drawPointOverlay(context, hoveredOverlay.overlay, hoveredOverlay.px, hoveredOverlay.py, true);
-      context.restore();
-      showOverlayTooltip(state, hoveredOverlay.overlay, span, hoveredOverlay.px, hoveredOverlay.py);
-      return;
-    }
-    let chosen: {
-      trace: (typeof renderedTraces)[number];
-      py: number;
-      value: number;
-      distance: number;
-    } | null = null;
-    for (const trace of renderedTraces) {
-      const point = pointOnTrace(trace.coordinates, px);
-      if (!point) continue;
-      const panelHeight = Math.max(1, trace.panel.bottom - trace.panel.top);
-      const value = trace.domain[0]
-        + ((trace.panel.bottom - point[1]) / panelHeight) * (trace.domain[1] - trace.domain[0]);
-      const candidate = {
-        trace,
-        py: point[1],
-        value,
-        distance: Math.abs(state.pointerY - point[1]),
-      };
-      if (!chosen || candidate.distance < chosen.distance) chosen = candidate;
-    }
-    if (chosen) {
-      const hoverTime = start + ((px - plot.left) / timeWidth) * span;
-      context.save();
-      context.strokeStyle = "rgba(216,222,230,.32)";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.moveTo(px, plot.top);
-      context.lineTo(px, plot.bottom);
-      context.stroke();
-      context.fillStyle = chosen.trace.line.color;
-      context.strokeStyle = "#090d10";
-      context.lineWidth = 1.7;
-      context.beginPath();
-      context.arc(px, chosen.py, 4, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
-      context.restore();
-      state.tooltip.hidden = false;
-      state.tooltip.replaceChildren();
-      state.tooltip.textContent = `${formatTime(hoverTime, span)} · ${chosen.trace.line.name} ${formatValue(data, chosen.value)}`;
-      positionTooltip(state, px, chosen.py);
-    } else {
-      state.tooltip.hidden = true;
-    }
-  } else {
-    state.tooltip.hidden = true;
+  state.geometry = {
+    plot,
+    start,
+    span,
+    timeWidth,
+    traces: renderedTraces,
+    overlays: [...renderedOverlays].sort((left, right) => left.px - right.px),
+  };
+  scheduleHover(state);
+}
+
+function nearestOverlaysAtX(overlays: RenderedOverlay[], px: number): RenderedOverlay[] {
+  if (!overlays.length) return [];
+  let low = 0;
+  let high = overlays.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (overlays[middle].px < px) low = middle + 1;
+    else high = middle;
   }
+  const leftIndex = Math.max(0, low - 1);
+  const rightIndex = Math.min(overlays.length - 1, low);
+  const nearestIndex = Math.abs(overlays[leftIndex].px - px) <= Math.abs(overlays[rightIndex].px - px)
+    ? leftIndex
+    : rightIndex;
+  const nearest = overlays[nearestIndex];
+  if (!nearest || Math.abs(nearest.px - px) > 10) return [];
+  const output: RenderedOverlay[] = [];
+  let index = nearestIndex;
+  while (index > 0 && Math.abs(overlays[index - 1].px - nearest.px) <= 1) index -= 1;
+  while (index < overlays.length && Math.abs(overlays[index].px - nearest.px) <= 1) {
+    output.push(overlays[index]);
+    index += 1;
+  }
+  return output;
+}
+
+function renderHover(state: ChartState): void {
+  state.hoverFrame = null;
+  const geometry = state.geometry;
+  const { pointerX, pointerY, hoverContext: context } = state;
+  context.clearRect(0, 0, state.width, state.height);
+  if (
+    !geometry
+    || pointerX === null
+    || pointerY === null
+    || pointerX < geometry.plot.left
+    || pointerX > geometry.plot.left + geometry.timeWidth
+    || pointerY < geometry.plot.top
+    || pointerY > geometry.plot.bottom
+  ) {
+    state.tooltip.hidden = true;
+    return;
+  }
+
+  const selectedOverlays = nearestOverlaysAtX(geometry.overlays, pointerX);
+  const px = selectedOverlays[0]?.px ?? pointerX;
+  const traceValues: Array<{ trace: RenderedTrace; py: number; value: number }> = [];
+  for (const trace of geometry.traces) {
+    const point = pointOnTrace(trace.coordinates, px);
+    if (!point) continue;
+    const panelHeight = Math.max(1, trace.panel.bottom - trace.panel.top);
+    traceValues.push({
+      trace,
+      py: point[1],
+      value: trace.domain[0]
+        + ((trace.panel.bottom - point[1]) / panelHeight) * (trace.domain[1] - trace.domain[0]),
+    });
+  }
+  if (!traceValues.length && !selectedOverlays.length) {
+    state.tooltip.hidden = true;
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = "rgba(216,222,230,.32)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(px, geometry.plot.top);
+  context.lineTo(px, geometry.plot.bottom);
+  context.stroke();
+  for (const item of traceValues) {
+    context.fillStyle = item.trace.line.color;
+    context.strokeStyle = "#090d10";
+    context.lineWidth = 1.7;
+    context.beginPath();
+    context.arc(px, item.py, 4, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  }
+  for (const item of selectedOverlays) {
+    drawPointOverlay(context, item.overlay, item.px, item.py, true);
+  }
+  context.restore();
+
+  const anchorY = selectedOverlays[0]?.py
+    ?? traceValues.reduce((closest, item) => (
+      Math.abs(item.py - pointerY) < Math.abs(closest.py - pointerY) ? item : closest
+    )).py;
+  const hoverTime = selectedOverlays.length
+    ? timestamp(selectedOverlays[0].overlay.timestamp)
+    : geometry.start + ((px - geometry.plot.left) / geometry.timeWidth) * geometry.span;
+  showAggregateTooltip(
+    state,
+    hoverTime,
+    geometry.span,
+    px,
+    anchorY,
+    traceValues,
+    selectedOverlays.map((item) => item.overlay),
+  );
+}
+
+function scheduleHover(state: ChartState): void {
+  if (state.hoverFrame !== null || state.closed) return;
+  state.hoverFrame = requestAnimationFrame(() => renderHover(state));
 }
 
 function schedule(state: ChartState): void {
@@ -931,7 +1056,10 @@ function resize(state: ChartState): void {
   state.height = Math.max(1, Math.floor(bounds.height));
   state.canvas.width = Math.floor(state.width * ratio);
   state.canvas.height = Math.floor(state.height * ratio);
+  state.hoverCanvas.width = Math.floor(state.width * ratio);
+  state.hoverCanvas.height = Math.floor(state.height * ratio);
   state.context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  state.hoverContext.setTransform(ratio, 0, 0, ratio, 0, 0);
   schedule(state);
 }
 
@@ -1061,6 +1189,7 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
   const host = prepareTarget(parent);
   const root = host.querySelector<HTMLElement>(".slc-chart");
   const canvas = host.querySelector<HTMLCanvasElement>(".slc-canvas");
+  const hoverCanvas = host.querySelector<HTMLCanvasElement>(".slc-hover-canvas");
   const tooltip = host.querySelector<HTMLElement>(".slc-tooltip");
   const quote = host.querySelector<HTMLElement>(".slc-value");
   const meta = host.querySelector<HTMLElement>(".slc-meta");
@@ -1070,11 +1199,12 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
   const zoomOut = host.querySelector<HTMLButtonElement>('[data-action="zoom-out"]');
   const fitButton = host.querySelector<HTMLButtonElement>('[data-action="fit"]');
   const context = canvas?.getContext("2d", { alpha: true, desynchronized: true });
-  if (!root || !canvas || !context || !tooltip || !quote || !meta || !legend || !status || !zoomIn || !zoomOut || !fitButton) return null;
+  const hoverContext = hoverCanvas?.getContext("2d", { alpha: true, desynchronized: true });
+  if (!root || !canvas || !context || !hoverCanvas || !hoverContext || !tooltip || !quote || !meta || !legend || !status || !zoomIn || !zoomOut || !fitButton) return null;
   const state: ChartState = {
-    parent, root, canvas, context, tooltip, quote, meta, legend, status,
+    parent, root, canvas, context, hoverCanvas, hoverContext, tooltip, quote, meta, legend, status,
     data: normalise(data), hidden: new Set(), view: null, pointerX: null, pointerY: null,
-    width: 0, height: 0, frame: null, socket: null, reconnectTimer: null,
+    width: 0, height: 0, frame: null, hoverFrame: null, geometry: null, socket: null, reconnectTimer: null,
     resizeObserver: new ResizeObserver(() => resize(state)), closed: false,
   };
   zoomIn.onclick = () => zoom(state, .5);
@@ -1084,13 +1214,13 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
     const bounds = canvas.getBoundingClientRect();
     state.pointerX = event.clientX - bounds.left;
     state.pointerY = event.clientY - bounds.top;
-    schedule(state);
+    scheduleHover(state);
   };
   canvas.onpointerleave = () => {
     state.pointerX = null;
     state.pointerY = null;
+    state.hoverContext.clearRect(0, 0, state.width, state.height);
     tooltip.hidden = true;
-    schedule(state);
   };
   state.resizeObserver.observe(canvas);
   status.textContent = state.data.streamUrl ? "Connecting" : "Static dataset";
@@ -1106,6 +1236,7 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
 function destroy(state: ChartState): void {
   state.closed = true;
   if (state.frame !== null) cancelAnimationFrame(state.frame);
+  if (state.hoverFrame !== null) cancelAnimationFrame(state.hoverFrame);
   if (state.reconnectTimer !== null) clearTimeout(state.reconnectTimer);
   if (state.socket) state.socket.close();
   state.resizeObserver.disconnect();

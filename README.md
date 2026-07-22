@@ -24,7 +24,7 @@ Live Canvas Chart keeps incoming points in the browser, draws with HTML Canvas, 
 - Smooth Canvas lines, fills, markers, bars, multiple axes, and stacked panels
 - Automatic visible-range scaling
 - Button-only time zoom; mouse-wheel and trackpad gestures scroll the surrounding page normally
-- Path-accurate hover markers that select the closest visible line, plus toggleable overlays
+- Lightweight hover layer with aggregate values for every visible line
 - First-class trade/event point overlays with buy/sell shapes, descriptions, and custom hover fields
 - Horizontal rules, event lines, and shaded time bands
 - Web Component and typed React APIs
@@ -77,7 +77,7 @@ The public instance methods are `setData`, `append`, `fit`, `zoomIn`, `zoomOut`,
 
 ## Point overlays and hover details
 
-Use `pointOverlays` for individual events that should stand out from continuous datasets: buys, sells, model signals, pivots, news, or annotations. Hovering a marker takes priority over the underlying lines and shows its description plus any ordered custom fields.
+Use `pointOverlays` for individual events that should stand out from continuous datasets: buys, sells, model signals, pivots, news, or annotations. When the vertical crosshair reaches a marker timestamp, its description and ordered custom fields appear regardless of the pointer's height. The same tooltip also includes every visible line's value at that time.
 
 ```ts
 const overlays = [{
@@ -96,6 +96,8 @@ const overlays = [{
 ```
 
 Markers support `circle`, `square`, `diamond`, `triangle-up`, and `triangle-down`, along with custom color and size. Set `showTimestamp` or `showValue` to `false` to remove default tooltip rows. Tooltip field values may use `text`, `number`, `currency`, `percent`, or `datetime` formatting.
+
+Pointer movement is drawn on a separate transparent Canvas layer, so static lines and large marker collections are not repainted on every mouse event. The endpoint marker is reserved for charts connected to `streamUrl`; static charts end with the line itself.
 
 For ordinary records, `pointsFromRecords()` and `pointOverlaysFromRecords()` map column names or accessor functions into the chart schema. They have Python equivalents, so dataframe-like data does not need to be manually reshaped.
 

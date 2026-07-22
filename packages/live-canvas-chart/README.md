@@ -27,4 +27,6 @@ const chart = new LiveCanvasChart(document.querySelector("#chart")!, {
 chart.append("Price", { timestamp: new Date().toISOString(), value: 118_250.42 });
 ```
 
+Static hover runs on a separate Canvas layer. Its vertical crosshair reports all visible series together and activates point-overlay details by timestamp, independent of pointer height.
+
 For a custom element, import `live-canvas-chart/web-component` and use `<live-canvas-chart>`.
