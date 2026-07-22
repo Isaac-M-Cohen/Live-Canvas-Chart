@@ -1,6 +1,6 @@
 {
   "name": "live-canvas-chart-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React adapter for Live Canvas Chart.",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "live-canvas-chart": "0.1.0"
+    "live-canvas-chart": "0.1.1"
   },
   "peerDependencies": {
     "react": ">=18"

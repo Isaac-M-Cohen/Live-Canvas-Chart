@@ -3,8 +3,12 @@ from __future__ import annotations
 import base64
 import json
 import struct
+from pathlib import Path
 
 from streamlit_live_canvas import figure_payload
+
+
+ROOT = Path(__file__).parents[1]
 
 
 class Figure:
@@ -58,3 +62,14 @@ def test_plotly_typed_arrays_are_decoded_without_numpy() -> None:
     values = [point["value"] for point in figure_payload(figure)["series"][0]["points"]]
 
     assert values == [63_000.0, 63_100.0]
+
+
+def test_canvas_allows_page_wheel_scrolling() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+    built_assets = list(
+        (ROOT / "streamlit_live_canvas" / "frontend" / "build").glob("index-*.js")
+    )
+
+    assert "preventDefault" not in source
+    assert len(built_assets) == 1
+    assert "preventDefault" not in built_assets[0].read_text()

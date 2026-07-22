@@ -635,7 +635,6 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
     tooltip.hidden = true;
     schedule(state);
   };
-  canvas.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
   state.resizeObserver.observe(canvas);
   status.textContent = state.data.streamUrl ? "Connecting" : "Static dataset";
   status.dataset.state = state.data.streamUrl ? "connecting" : "static";
