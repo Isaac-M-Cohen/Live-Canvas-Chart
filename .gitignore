@@ -7,5 +7,6 @@ node_modules/
 /build/
 dist/
 packages/*/dist/
+packages/*/src/*.d.ts
 streamlit_live_canvas/frontend/node_modules/
 .DS_Store
