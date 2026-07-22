@@ -5,7 +5,7 @@ import json
 import struct
 from pathlib import Path
 
-from streamlit_live_canvas import figure_payload
+from streamlit_live_canvas import figure_payload, records_to_overlays, records_to_points
 
 
 ROOT = Path(__file__).parents[1]
@@ -88,3 +88,81 @@ def test_hover_tracks_the_closest_visible_rendered_line() -> None:
     assert "Math.abs(state.pointerY - point[1])" in source
     assert "chosen.trace.line.name" in source
     assert "context.arc(px, chosen.py, 4" in source
+
+
+def test_plotly_marker_traces_become_hoverable_point_overlays() -> None:
+    figure = Figure(
+        {
+            "data": [
+                {
+                    "type": "scatter",
+                    "name": "Price",
+                    "x": ["2026-07-22T12:00:00Z", "2026-07-22T12:01:00Z"],
+                    "y": [100, 101],
+                    "mode": "lines",
+                },
+                {
+                    "type": "scatter",
+                    "name": "BUY",
+                    "x": ["2026-07-22T12:01:00Z"],
+                    "y": [101],
+                    "mode": "markers",
+                    "text": ["Downtrend entry confirmed"],
+                    "customdata": [[0.87, 1]],
+                    "marker": {"color": "#38d6aa", "size": 12, "symbol": "triangle-up"},
+                },
+            ],
+            "layout": {"title": "Trades"},
+        }
+    )
+
+    payload = figure_payload(figure)
+    overlay = payload["point_overlays"][0]
+
+    assert len(payload["series"]) == 1
+    assert overlay["label"] == "BUY"
+    assert overlay["description"] == "Downtrend entry confirmed"
+    assert overlay["shape"] == "triangle-up"
+    assert overlay["fields"] == [
+        {"label": "Detail 1", "value": 0.87},
+        {"label": "Detail 2", "value": 1},
+    ]
+
+
+def test_record_conversion_helpers_map_dataset_fields() -> None:
+    records = [
+        {
+            "executed_at": "2026-07-22T12:01:00Z",
+            "price": 101.25,
+            "side": "BUY",
+            "reason": "Momentum confirmation",
+            "confidence": 0.91,
+        }
+    ]
+
+    points = records_to_points(records, timestamp="executed_at", value="price")
+    overlays = records_to_overlays(
+        records,
+        timestamp="executed_at",
+        value="price",
+        label="side",
+        description="reason",
+        group="Trades",
+        kind="side",
+        fields={"Confidence": "confidence"},
+    )
+
+    assert points == [{"timestamp": "2026-07-22T12:01:00Z", "value": 101.25}]
+    assert overlays[0]["label"] == "BUY"
+    assert overlays[0]["group"] == "Trades"
+    assert overlays[0]["fields"] == [{"label": "Confidence", "value": 0.91}]
+
+
+def test_point_overlays_have_priority_hover_and_safe_custom_tooltips() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+
+    assert "pointOverlaysFromRecords" in source
+    assert "hoveredOverlay" in source
+    assert "showOverlayTooltip" in source
+    assert "textContent = overlay.description" in source
+    assert "normaliseFields(overlay.fields)" in source

@@ -5,7 +5,7 @@ from math import sin
 
 import streamlit as st
 
-from streamlit_live_canvas import chart
+from streamlit_live_canvas import chart, records_to_overlays
 
 
 st.set_page_config(page_title="Streamlit Live Canvas", layout="wide")
@@ -35,4 +35,27 @@ chart(
     height=520,
     value_format="currency",
     vertical_lines=[{"timestamp": now.isoformat(), "label": "Now"}],
+    point_overlays=records_to_overlays(
+        [
+            {
+                "timestamp": price[48]["timestamp"],
+                "value": price[48]["value"],
+                "side": "BUY",
+                "reason": "Trend confirmation",
+                "confidence": 87.4,
+            },
+            {
+                "timestamp": price[88]["timestamp"],
+                "value": price[88]["value"],
+                "side": "SELL",
+                "reason": "Target reached",
+                "confidence": 82.1,
+            },
+        ],
+        label="side",
+        description="reason",
+        group="Trades",
+        kind="side",
+        fields={"Confidence": "confidence"},
+    ),
 )

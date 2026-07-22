@@ -1,4 +1,49 @@
 export type Point = { timestamp: string; value: number };
+export type TooltipValue = string | number | boolean | null;
+export type TooltipField = {
+  label: string;
+  value: TooltipValue;
+  format?: "auto" | "text" | "number" | "currency" | "percent" | "datetime";
+  decimals?: number;
+};
+export type OverlayShape = "circle" | "square" | "diamond" | "triangle-up" | "triangle-down";
+export type PointOverlay = {
+  id?: string;
+  timestamp: string;
+  value: number;
+  label?: string;
+  description?: string;
+  group?: string;
+  kind?: string;
+  color?: string;
+  size?: number;
+  shape?: OverlayShape;
+  panel?: string;
+  axis?: "main" | "secondary";
+  fields?: TooltipField[] | Record<string, TooltipValue>;
+  showTimestamp?: boolean;
+  showValue?: boolean;
+  showInLegend?: boolean;
+};
+export type DataRecord = Record<string, unknown>;
+export type DataAccessor = string | ((record: DataRecord, index: number) => unknown);
+export type PointConversion = { timestamp?: DataAccessor; value?: DataAccessor };
+export type OverlayConversion = PointConversion & {
+  id?: DataAccessor;
+  label?: DataAccessor;
+  description?: DataAccessor;
+  group?: DataAccessor;
+  kind?: DataAccessor;
+  color?: DataAccessor;
+  size?: DataAccessor;
+  shape?: DataAccessor;
+  panel?: DataAccessor;
+  axis?: DataAccessor;
+  fields?: Record<string, DataAccessor>;
+  showTimestamp?: boolean;
+  showValue?: boolean;
+  showInLegend?: boolean;
+};
 export type Series = {
   name: string;
   color: string;
@@ -30,6 +75,7 @@ export type ChartData = {
   horizontalLines?: Rule[];
   bands?: Band[];
   panels?: Panel[];
+  pointOverlays?: PointOverlay[];
   emptyMessage?: string;
 };
 type ChartState = {
@@ -121,9 +167,16 @@ export const LIVE_CANVAS_CSS = `
 .slc-tooltip {
   background: rgba(17,22,27,.95); border: 1px solid rgba(255,255,255,.09); border-radius: 6px;
   color: #eef2f6; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.45;
-  max-width: 260px; padding: 6px 8px; pointer-events: none; position: absolute;
-  transform: translate(-50%, -100%); white-space: nowrap; z-index: 2;
+  max-width: 300px; min-width: 124px; padding: 7px 9px; pointer-events: none; position: absolute;
+  transform: translate(-50%, -100%); z-index: 2;
 }
+.slc-tooltip-title { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.slc-tooltip-description { color: #b7c0ca; display: block; margin-top: 2px; max-width: 270px; overflow-wrap: anywhere; }
+.slc-tooltip-fields { border-top: 1px solid rgba(255,255,255,.08); display: grid; gap: 2px; margin-top: 5px; padding-top: 5px; }
+.slc-tooltip-field { display: flex; gap: 12px; justify-content: space-between; min-width: 150px; }
+.slc-tooltip-field > span:first-child { color: var(--live-canvas-muted, #8e98a4); }
+.slc-tooltip-field > span:last-child { font-weight: 600; overflow-wrap: anywhere; text-align: right; }
+.slc-tooltip[data-placement="below"] { transform: translate(-50%, 10px); }
 .slc-foot { align-items: center; color: var(--live-canvas-muted, #626d78); display: flex; font-size: 10px; justify-content: space-between; padding: 0 12px; }
 .slc-status::before { background: #71808f; border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 6px; width: 6px; }
 .slc-status[data-state="live"]::before { background: #38d6aa; }
@@ -150,6 +203,107 @@ function sorted(points: Point[] = []): Point[] {
     .sort((left, right) => timestamp(left.timestamp) - timestamp(right.timestamp));
 }
 
+function readAccessor(
+  record: DataRecord,
+  index: number,
+  accessor: DataAccessor | undefined,
+  fallback: unknown = undefined,
+): unknown {
+  if (typeof accessor === "function") return accessor(record, index);
+  if (typeof accessor === "string") return Object.hasOwn(record, accessor) ? record[accessor] : accessor;
+  return fallback;
+}
+
+function timestampValue(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "number") {
+    const milliseconds = Math.abs(value) < 10_000_000_000 ? value * 1_000 : value;
+    return new Date(milliseconds).toISOString();
+  }
+  return String(value ?? "");
+}
+
+/** Convert ordinary records into chart points without requiring a dataframe library. */
+export function pointsFromRecords(
+  records: DataRecord[],
+  conversion: PointConversion = {},
+): Point[] {
+  return sorted(records.map((record, index) => ({
+    timestamp: timestampValue(readAccessor(record, index, conversion.timestamp, record.timestamp)),
+    value: Number(readAccessor(record, index, conversion.value, record.value)),
+  })));
+}
+
+/** Convert event/trade records into hoverable point overlays. */
+export function pointOverlaysFromRecords(
+  records: DataRecord[],
+  conversion: OverlayConversion = {},
+): PointOverlay[] {
+  return records.map((record, index) => {
+    const fields = Object.entries(conversion.fields || {}).map(([label, accessor]) => ({
+      label,
+      value: (
+        typeof accessor === "string" && !Object.hasOwn(record, accessor)
+          ? null
+          : readAccessor(record, index, accessor, null)
+      ) as TooltipValue,
+    }));
+    return {
+      id: String(readAccessor(record, index, conversion.id, record.id) ?? ""),
+      timestamp: timestampValue(readAccessor(record, index, conversion.timestamp, record.timestamp)),
+      value: Number(readAccessor(record, index, conversion.value, record.value)),
+      label: String(readAccessor(record, index, conversion.label, record.label) ?? ""),
+      description: String(readAccessor(record, index, conversion.description, record.description) ?? ""),
+      group: String(readAccessor(record, index, conversion.group, record.group) ?? ""),
+      kind: String(readAccessor(record, index, conversion.kind, record.kind) ?? ""),
+      color: String(readAccessor(record, index, conversion.color, record.color) ?? ""),
+      size: Number(readAccessor(record, index, conversion.size, record.size)),
+      shape: String(readAccessor(record, index, conversion.shape, record.shape) ?? "") as OverlayShape,
+      panel: String(readAccessor(record, index, conversion.panel, record.panel) ?? "y"),
+      axis: (readAccessor(record, index, conversion.axis, record.axis) === "secondary" ? "secondary" : "main") as "secondary" | "main",
+      fields,
+      showTimestamp: conversion.showTimestamp,
+      showValue: conversion.showValue,
+      showInLegend: conversion.showInLegend,
+    };
+  }).filter((overlay) => Number.isFinite(timestamp(overlay.timestamp)) && finite(overlay.value) !== null);
+}
+
+function normaliseFields(fields: PointOverlay["fields"]): TooltipField[] {
+  if (Array.isArray(fields)) {
+    return fields
+      .filter((field) => field && field.label)
+      .map((field) => ({ ...field, label: String(field.label), value: field.value ?? null }));
+  }
+  return Object.entries(fields || {}).map(([label, value]) => ({ label, value: value ?? null }));
+}
+
+function normaliseOverlay(overlay: PointOverlay): PointOverlay {
+  const kind = String(overlay.kind || overlay.group || overlay.label || "event").toLowerCase();
+  const isBuy = kind.includes("buy") || kind.includes("entry") || kind.includes("low");
+  const isSell = kind.includes("sell") || kind.includes("exit") || kind.includes("high");
+  const defaultColor = isBuy ? "#38d6aa" : isSell ? "#ff6685" : "#b98cff";
+  const defaultShape: OverlayShape = isBuy ? "triangle-up" : isSell ? "triangle-down" : "diamond";
+  return {
+    ...overlay,
+    timestamp: timestampValue(overlay.timestamp),
+    value: Number(overlay.value),
+    label: String(overlay.label || overlay.kind || "Event"),
+    description: String(overlay.description || ""),
+    group: String(overlay.group || ""),
+    kind: String(overlay.kind || "event"),
+    color: overlay.color || defaultColor,
+    size: Math.max(5, Math.min(30, finite(overlay.size) ?? 10)),
+    shape: overlay.shape || defaultShape,
+    panel: overlay.panel || "y",
+    axis: overlay.axis || "main",
+    fields: normaliseFields(overlay.fields),
+    showTimestamp: overlay.showTimestamp ?? true,
+    showValue: overlay.showValue ?? true,
+    showInLegend: overlay.showInLegend ?? Boolean(overlay.group),
+  };
+}
+
 function normalise(data: ChartData): ChartData {
   return {
     ...data,
@@ -164,6 +318,9 @@ function normalise(data: ChartData): ChartData {
       show_line: series.show_line ?? series.style !== "bar",
       show_markers: series.show_markers ?? false,
     })),
+    pointOverlays: (data.pointOverlays || [])
+      .filter((overlay) => Number.isFinite(timestamp(overlay.timestamp)) && finite(overlay.value) !== null)
+      .map(normaliseOverlay),
   };
 }
 
@@ -204,7 +361,7 @@ function formatTime(value: number, span: number): string {
   return new Date(value).toLocaleString(undefined, options);
 }
 
-function extent(series: Series[]): [number, number] | null {
+function extent(series: Series[], overlays: PointOverlay[] = []): [number, number] | null {
   let start = Number.POSITIVE_INFINITY;
   let end = Number.NEGATIVE_INFINITY;
   for (const line of series) {
@@ -215,10 +372,23 @@ function extent(series: Series[]): [number, number] | null {
       end = Math.max(end, next);
     }
   }
+  for (const overlay of overlays) {
+    const next = timestamp(overlay.timestamp);
+    if (!Number.isFinite(next)) continue;
+    start = Math.min(start, next);
+    end = Math.max(end, next);
+  }
   return Number.isFinite(start) && Number.isFinite(end) ? [start, end] : null;
 }
 
-function visibleDomain(series: Series[], panel: string, axis: string, start: number, end: number): [number, number] {
+function visibleDomain(
+  series: Series[],
+  panel: string,
+  axis: string,
+  start: number,
+  end: number,
+  overlays: PointOverlay[] = [],
+): [number, number] {
   const values: number[] = [];
   for (const line of series) {
     if ((line.panel || "y") !== panel || (line.axis || "main") !== axis) continue;
@@ -226,6 +396,11 @@ function visibleDomain(series: Series[], panel: string, axis: string, start: num
       const time = timestamp(point.timestamp);
       if (time >= start && time <= end && Number.isFinite(point.value)) values.push(point.value);
     }
+  }
+  for (const overlay of overlays) {
+    const time = timestamp(overlay.timestamp);
+    if ((overlay.panel || "y") !== panel || (overlay.axis || "main") !== axis) continue;
+    if (time >= start && time <= end && Number.isFinite(overlay.value)) values.push(overlay.value);
   }
   if (!values.length) return [0, 1];
   let minimum = Math.min(...values);
@@ -239,7 +414,10 @@ function visibleDomain(series: Series[], panel: string, axis: string, start: num
 }
 
 function panelLayout(state: ChartState, top: number, bottom: number): Array<{ id: string; top: number; bottom: number }> {
-  const ids = [...new Set(state.data.series.map((series) => series.panel || "y"))];
+  const ids = [...new Set([
+    ...state.data.series.map((series) => series.panel || "y"),
+    ...(state.data.pointOverlays || []).map((overlay) => overlay.panel || "y"),
+  ])];
   const configured = state.data.panels || [];
   if (!ids.length) return [{ id: "y", top, bottom }];
   if (configured.length) {
@@ -326,6 +504,129 @@ function pointOnTrace(
   ];
 }
 
+function markerPath(
+  context: CanvasRenderingContext2D,
+  shape: OverlayShape,
+  px: number,
+  py: number,
+  radius: number,
+): void {
+  context.beginPath();
+  if (shape === "square") {
+    context.rect(px - radius, py - radius, radius * 2, radius * 2);
+  } else if (shape === "diamond") {
+    context.moveTo(px, py - radius);
+    context.lineTo(px + radius, py);
+    context.lineTo(px, py + radius);
+    context.lineTo(px - radius, py);
+    context.closePath();
+  } else if (shape === "triangle-up") {
+    context.moveTo(px, py - radius);
+    context.lineTo(px + radius, py + radius);
+    context.lineTo(px - radius, py + radius);
+    context.closePath();
+  } else if (shape === "triangle-down") {
+    context.moveTo(px - radius, py - radius);
+    context.lineTo(px + radius, py - radius);
+    context.lineTo(px, py + radius);
+    context.closePath();
+  } else {
+    context.arc(px, py, radius, 0, Math.PI * 2);
+  }
+}
+
+function drawPointOverlay(
+  context: CanvasRenderingContext2D,
+  overlay: PointOverlay,
+  px: number,
+  py: number,
+  hovered = false,
+): void {
+  const radius = Math.max(2.5, Number(overlay.size || 10) / 2);
+  context.save();
+  context.globalAlpha = 1;
+  if (hovered) {
+    context.fillStyle = rgba(overlay.color || "#b98cff", .2);
+    markerPath(context, "circle", px, py, radius + 5);
+    context.fill();
+  }
+  context.fillStyle = overlay.color || "#b98cff";
+  context.strokeStyle = "#090d10";
+  context.lineWidth = hovered ? 2.5 : 2;
+  markerPath(context, overlay.shape || "diamond", px, py, radius);
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function formatTooltipField(data: ChartData, field: TooltipField): string {
+  if (field.value === null || field.value === undefined) return "—";
+  if (field.format === "datetime") {
+    const parsed = timestamp(String(field.value));
+    return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : String(field.value);
+  }
+  if (typeof field.value === "number" && field.format && field.format !== "text" && field.format !== "auto") {
+    return formatValue({ ...data, valueFormat: field.format, decimals: field.decimals ?? data.decimals }, field.value);
+  }
+  if (typeof field.value === "number") {
+    return field.value.toLocaleString(undefined, { maximumFractionDigits: field.decimals ?? 4 });
+  }
+  if (typeof field.value === "boolean") return field.value ? "Yes" : "No";
+  return String(field.value);
+}
+
+function positionTooltip(state: ChartState, px: number, py: number): void {
+  const half = Math.min(150, Math.max(80, state.width / 2 - 8));
+  state.tooltip.style.left = `${Math.min(state.width - half, Math.max(half, px))}px`;
+  state.tooltip.style.top = `${Math.max(8, py - 8)}px`;
+  state.tooltip.dataset.placement = py < 120 ? "below" : "above";
+  state.tooltip.hidden = false;
+}
+
+function showOverlayTooltip(
+  state: ChartState,
+  overlay: PointOverlay,
+  span: number,
+  px: number,
+  py: number,
+): void {
+  const title = document.createElement("span");
+  title.className = "slc-tooltip-title";
+  title.textContent = overlay.label || overlay.kind || "Event";
+  const children: HTMLElement[] = [title];
+  if (overlay.description) {
+    const description = document.createElement("span");
+    description.className = "slc-tooltip-description";
+    description.textContent = overlay.description;
+    children.push(description);
+  }
+  const fields: TooltipField[] = [];
+  if (overlay.showTimestamp !== false) {
+    fields.push({ label: "Time", value: formatTime(timestamp(overlay.timestamp), span) });
+  }
+  if (overlay.showValue !== false) {
+    fields.push({ label: "Value", value: formatValue(state.data, overlay.value) });
+  }
+  fields.push(...normaliseFields(overlay.fields));
+  if (fields.length) {
+    const fieldList = document.createElement("span");
+    fieldList.className = "slc-tooltip-fields";
+    for (const field of fields) {
+      const row = document.createElement("span");
+      row.className = "slc-tooltip-field";
+      const label = document.createElement("span");
+      const value = document.createElement("span");
+      label.textContent = field.label;
+      value.textContent = formatTooltipField(state.data, field);
+      row.append(label, value);
+      fieldList.append(row);
+    }
+    children.push(fieldList);
+  }
+  state.tooltip.replaceChildren(...children);
+  positionTooltip(state, px, py);
+}
+
 function displayPoints(points: Point[], start: number, end: number, maxCount: number): Point[] {
   const visible = points.filter((point) => {
     const time = timestamp(point.timestamp);
@@ -351,7 +652,10 @@ function render(state: ChartState): void {
   if (!width || !height) return;
   context.clearRect(0, 0, width, height);
   const visibleSeries = data.series.filter((series) => !state.hidden.has(series.name));
-  const dataExtent = extent(visibleSeries);
+  const visibleOverlays = (data.pointOverlays || []).filter(
+    (overlay) => !overlay.group || !state.hidden.has(overlay.group),
+  );
+  const dataExtent = extent(visibleSeries, visibleOverlays);
   if (!dataExtent) {
     context.fillStyle = MUTED;
     context.font = "12px sans-serif";
@@ -373,7 +677,7 @@ function render(state: ChartState): void {
   context.fillStyle = MUTED;
   context.font = "10px sans-serif";
   for (const panel of panels) {
-    const main = visibleDomain(visibleSeries, panel.id, "main", start, end);
+    const main = visibleDomain(visibleSeries, panel.id, "main", start, end, visibleOverlays);
     context.setLineDash([2, 5]);
     for (let index = 0; index < 4; index += 1) {
       const ratio = index / 3;
@@ -405,6 +709,7 @@ function render(state: ChartState): void {
     domain: [number, number];
     coordinates: Array<[number, number]>;
   }> = [];
+  const renderedOverlays: Array<{ overlay: PointOverlay; px: number; py: number }> = [];
   for (const band of data.bands || []) {
     const left = x(band.start);
     const right = x(band.end);
@@ -425,7 +730,7 @@ function render(state: ChartState): void {
 
   for (const line of visibleSeries) {
     const panel = panels.find((item) => item.id === (line.panel || "y")) || panels[0];
-    const domain = visibleDomain(visibleSeries, panel.id, line.axis || "main", start, end);
+    const domain = visibleDomain(visibleSeries, panel.id, line.axis || "main", start, end, visibleOverlays);
     const y = (value: number) => panel.bottom - ((value - domain[0]) / (domain[1] - domain[0])) * (panel.bottom - panel.top);
     const points = displayPoints(line.points, start, end, Math.max(100, Math.floor(plotWidth)));
     const coordinates = points.map((point) => [x(point.timestamp), y(point.value)] as [number, number]);
@@ -478,10 +783,28 @@ function render(state: ChartState): void {
     }
   }
 
+  for (const overlay of visibleOverlays) {
+    const time = timestamp(overlay.timestamp);
+    if (time < start || time > end) continue;
+    const panel = panels.find((item) => item.id === (overlay.panel || "y")) || panels[0];
+    const domain = visibleDomain(
+      visibleSeries,
+      panel.id,
+      overlay.axis || "main",
+      start,
+      end,
+      visibleOverlays,
+    );
+    const px = x(overlay.timestamp);
+    const py = panel.bottom - ((overlay.value - domain[0]) / (domain[1] - domain[0])) * (panel.bottom - panel.top);
+    drawPointOverlay(context, overlay, px, py);
+    renderedOverlays.push({ overlay, px, py });
+  }
+
   for (const rule of data.horizontalLines || []) {
     if (finite(rule.value) === null) continue;
     const panel = panels.find((item) => item.id === (rule.panel || "y")) || panels[0];
-    const domain = visibleDomain(visibleSeries, panel.id, "main", start, end);
+    const domain = visibleDomain(visibleSeries, panel.id, "main", start, end, visibleOverlays);
     const py = panel.bottom - ((Number(rule.value) - domain[0]) / (domain[1] - domain[0])) * (panel.bottom - panel.top);
     context.strokeStyle = rule.color || "#71808f";
     context.setLineDash(dashPattern(rule.dash || "dot"));
@@ -496,7 +819,7 @@ function render(state: ChartState): void {
   const current = primary?.points[primary.points.length - 1];
   if (current && timestamp(current.timestamp) >= start && timestamp(current.timestamp) <= end) {
     const panel = panels.find((item) => item.id === (primary.panel || "y")) || panels[0];
-    const domain = visibleDomain(visibleSeries, panel.id, primary.axis || "main", start, end);
+    const domain = visibleDomain(visibleSeries, panel.id, primary.axis || "main", start, end, visibleOverlays);
     const px = x(current.timestamp);
     const py = panel.bottom - ((current.value - domain[0]) / (domain[1] - domain[0])) * (panel.bottom - panel.top);
     context.save();
@@ -526,6 +849,27 @@ function render(state: ChartState): void {
     && state.pointerY <= plot.bottom
   ) {
     const px = state.pointerX;
+    const hoveredOverlay = renderedOverlays
+      .map((item) => ({
+        ...item,
+        distance: Math.hypot(state.pointerX! - item.px, state.pointerY! - item.py),
+        hitRadius: Math.max(9, Number(item.overlay.size || 10) / 2 + 5),
+      }))
+      .filter((item) => item.distance <= item.hitRadius)
+      .sort((left, right) => left.distance - right.distance)[0];
+    if (hoveredOverlay) {
+      context.save();
+      context.strokeStyle = "rgba(216,222,230,.32)";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(hoveredOverlay.px, plot.top);
+      context.lineTo(hoveredOverlay.px, plot.bottom);
+      context.stroke();
+      drawPointOverlay(context, hoveredOverlay.overlay, hoveredOverlay.px, hoveredOverlay.py, true);
+      context.restore();
+      showOverlayTooltip(state, hoveredOverlay.overlay, span, hoveredOverlay.px, hoveredOverlay.py);
+      return;
+    }
     let chosen: {
       trace: (typeof renderedTraces)[number];
       py: number;
@@ -564,9 +908,9 @@ function render(state: ChartState): void {
       context.stroke();
       context.restore();
       state.tooltip.hidden = false;
+      state.tooltip.replaceChildren();
       state.tooltip.textContent = `${formatTime(hoverTime, span)} · ${chosen.trace.line.name} ${formatValue(data, chosen.value)}`;
-      state.tooltip.style.left = `${Math.min(width - 90, Math.max(90, px))}px`;
-      state.tooltip.style.top = `${Math.max(32, chosen.py - 8)}px`;
+      positionTooltip(state, px, chosen.py);
     } else {
       state.tooltip.hidden = true;
     }
@@ -592,7 +936,11 @@ function resize(state: ChartState): void {
 }
 
 function fit(state: ChartState): void {
-  const dataExtent = extent(state.data.series.filter((line) => !state.hidden.has(line.name)));
+  const visibleSeries = state.data.series.filter((line) => !state.hidden.has(line.name));
+  const visibleOverlays = (state.data.pointOverlays || []).filter(
+    (overlay) => !overlay.group || !state.hidden.has(overlay.group),
+  );
+  const dataExtent = extent(visibleSeries, visibleOverlays);
   if (!dataExtent) return;
   const [minimum, maximum] = dataExtent;
   const end = maximum === minimum ? maximum + 1 : maximum;
@@ -619,17 +967,26 @@ function updateHeader(state: ChartState): void {
 
 function updateLegend(state: ChartState): void {
   state.legend.replaceChildren();
-  state.root.dataset.hasLegend = state.data.series.length > 1 ? "true" : "false";
-  for (const line of state.data.series) {
+  const overlayGroups = [...new Map(
+    (state.data.pointOverlays || [])
+      .filter((overlay) => overlay.showInLegend && overlay.group)
+      .map((overlay) => [overlay.group!, overlay.color || "#b98cff"]),
+  ).entries()];
+  const legendItems = [
+    ...state.data.series.map((line) => ({ name: line.name, color: line.color })),
+    ...overlayGroups.map(([name, color]) => ({ name, color })),
+  ];
+  state.root.dataset.hasLegend = legendItems.length > 1 ? "true" : "false";
+  for (const item of legendItems) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = line.name;
-    button.style.setProperty("--series-color", line.color);
-    button.dataset.hidden = state.hidden.has(line.name) ? "true" : "false";
+    button.textContent = item.name;
+    button.style.setProperty("--series-color", item.color);
+    button.dataset.hidden = state.hidden.has(item.name) ? "true" : "false";
     button.onclick = () => {
-      if (state.hidden.has(line.name)) state.hidden.delete(line.name);
-      else state.hidden.add(line.name);
-      button.dataset.hidden = state.hidden.has(line.name) ? "true" : "false";
+      if (state.hidden.has(item.name)) state.hidden.delete(item.name);
+      else state.hidden.add(item.name);
+      button.dataset.hidden = state.hidden.has(item.name) ? "true" : "false";
       updateHeader(state);
       schedule(state);
     };
@@ -768,7 +1125,10 @@ export class LiveCanvasChart {
     const priorUrl = this.state.data.streamUrl;
     this.state.data = normalise(data);
     this.state.hidden = new Set(
-      [...this.state.hidden].filter((name) => this.state.data.series.some((line) => line.name === name)),
+      [...this.state.hidden].filter((name) => (
+        this.state.data.series.some((line) => line.name === name)
+        || (this.state.data.pointOverlays || []).some((overlay) => overlay.group === name)
+      )),
     );
     if (priorUrl !== this.state.data.streamUrl) {
       if (this.state.socket) {

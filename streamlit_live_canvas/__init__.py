@@ -35,6 +35,32 @@ class Series(TypedDict, total=False):
     show_markers: bool
 
 
+class TooltipField(TypedDict, total=False):
+    label: str
+    value: str | float | int | bool | None
+    format: Literal["auto", "text", "number", "currency", "percent", "datetime"]
+    decimals: int
+
+
+class PointOverlay(TypedDict, total=False):
+    id: str
+    timestamp: str
+    value: float
+    label: str
+    description: str
+    group: str
+    kind: str
+    color: str
+    size: float
+    shape: Literal["circle", "square", "diamond", "triangle-up", "triangle-down"]
+    panel: str
+    axis: Literal["main", "secondary"]
+    fields: list[TooltipField] | dict[str, Any]
+    showTimestamp: bool
+    showValue: bool
+    showInLegend: bool
+
+
 _COMPONENT_HTML = """<div class="streamlit-live-canvas-root"></div>"""
 _COMPONENT_CSS = """:host { display: block; height: 100%; width: 100%; }"""
 
@@ -82,6 +108,7 @@ def chart(
     horizontal_lines: Sequence[Mapping[str, Any]] = (),
     bands: Sequence[Mapping[str, Any]] = (),
     panels: Sequence[Mapping[str, Any]] = (),
+    point_overlays: Sequence[PointOverlay | Mapping[str, Any]] = (),
     empty_message: str = "No chart data",
 ) -> None:
     """Render static data, or append live points from a WebSocket.
@@ -104,6 +131,7 @@ def chart(
         "horizontalLines": [_json_safe(dict(item)) for item in horizontal_lines],
         "bands": [_json_safe(dict(item)) for item in bands],
         "panels": [_json_safe(dict(item)) for item in panels],
+        "pointOverlays": [_normalise_overlay(item) for item in point_overlays],
         "emptyMessage": empty_message,
     }
     _get_component()(data=payload, key=key, width="stretch", height=height)
@@ -118,8 +146,9 @@ def plotly_chart(
 ) -> None:
     """Render a Plotly figure through the Canvas engine.
 
-    This adapter supports lines, filled lines, markers, bars, subplot domains,
-    horizontal/vertical rules, and shaded time ranges. Plotly remains optional.
+    This adapter supports lines, filled lines, hoverable marker overlays, bars,
+    subplot domains, horizontal/vertical rules, and shaded time ranges. Plotly
+    remains optional.
     """
 
     payload = figure_payload(figure, value_format=value_format)
@@ -133,6 +162,7 @@ def plotly_chart(
         horizontal_lines=payload["horizontal_lines"],
         bands=payload["bands"],
         panels=payload["panels"],
+        point_overlays=payload["point_overlays"],
         empty_message=payload["empty_message"],
     )
 
@@ -149,6 +179,7 @@ def figure_payload(
     traces = raw.get("data", [])
     palette = ["#38d6aa", "#67a9ff", "#f3bd59", "#b98cff", "#ff6685", "#8e98a4"]
     output: list[Series] = []
+    point_overlays: list[PointOverlay] = []
     for index, trace in enumerate(traces):
         trace_type = str(trace.get("type", "scatter")).lower()
         if trace_type == "candlestick":
@@ -167,6 +198,19 @@ def figure_payload(
         layout_axis = layout.get("yaxis" + axis_ref[1:], {}) if axis_ref != "y" else layout.get("yaxis", {})
         overlaying = layout_axis.get("overlaying")
         panel = str(overlaying) if overlaying else axis_ref
+        marker_only = trace_type in {"scatter", "scattergl"} and "markers" in mode and "lines" not in mode
+        if marker_only:
+            point_overlays.extend(
+                _plotly_point_overlays(
+                    trace,
+                    x_values=x_values,
+                    values=values,
+                    panel=panel,
+                    axis="secondary" if overlaying else "main",
+                    fallback_color=color,
+                )
+            )
+            continue
         item: Series = {
             "name": str(trace.get("name") or f"Series {index + 1}"),
             "color": color,
@@ -226,8 +270,190 @@ def figure_payload(
         "horizontal_lines": horizontal_lines,
         "bands": bands,
         "panels": panels,
+        "point_overlays": point_overlays,
         "empty_message": empty_message,
     }
+
+
+def records_to_points(
+    records: Any,
+    *,
+    timestamp: str = "timestamp",
+    value: str = "value",
+) -> list[Point]:
+    """Convert records or a dataframe-like object into chart points."""
+
+    return [
+        {"timestamp": _timestamp(record[timestamp]), "value": float(record[value])}
+        for record in _records(records)
+        if record.get(timestamp) is not None and _finite(record.get(value))
+    ]
+
+
+def records_to_overlays(
+    records: Any,
+    *,
+    timestamp: str = "timestamp",
+    value: str = "value",
+    label: str | None = "label",
+    description: str | None = "description",
+    group: str | None = "group",
+    kind: str | None = "kind",
+    color: str | None = "color",
+    size: str | float | int | None = "size",
+    shape: str | None = "shape",
+    panel: str = "y",
+    axis: Literal["main", "secondary"] = "main",
+    fields: Mapping[str, str] | None = None,
+    show_timestamp: bool = True,
+    show_value: bool = True,
+    show_in_legend: bool | None = None,
+) -> list[PointOverlay]:
+    """Convert trade/event records into highlighted, hoverable chart points.
+
+    Mapping parameters read a matching record field. If a style/group string
+    is not a field name, it is treated as a constant value. ``fields`` maps
+    user-facing tooltip labels to record field names and preserves that order.
+    """
+
+    overlays: list[PointOverlay] = []
+    for index, record in enumerate(_records(records)):
+        if record.get(timestamp) is None or not _finite(record.get(value)):
+            continue
+        mapped_group = _mapped_value(record, group, "", default_key="group")
+        overlay: PointOverlay = {
+            "id": str(record.get("id", index)),
+            "timestamp": _timestamp(record[timestamp]),
+            "value": float(record[value]),
+            "label": str(_mapped_value(record, label, "Event", default_key="label")),
+            "description": str(_mapped_value(record, description, "", default_key="description")),
+            "group": str(mapped_group),
+            "kind": str(_mapped_value(record, kind, "event", default_key="kind")),
+            "color": str(_mapped_value(record, color, "", default_key="color")),
+            "size": float(_mapped_value(record, size, 10, default_key="size") or 10),
+            "shape": _overlay_shape(_mapped_value(record, shape, "", default_key="shape")),
+            "panel": panel,
+            "axis": axis,
+            "fields": [
+                {"label": field_label, "value": _json_safe(record.get(source))}
+                for field_label, source in (fields or {}).items()
+            ],
+            "showTimestamp": show_timestamp,
+            "showValue": show_value,
+            "showInLegend": bool(mapped_group) if show_in_legend is None else show_in_legend,
+        }
+        overlays.append(overlay)
+    return overlays
+
+
+def _plotly_point_overlays(
+    trace: Mapping[str, Any],
+    *,
+    x_values: Any,
+    values: Any,
+    panel: str,
+    axis: Literal["main", "secondary"],
+    fallback_color: str,
+) -> list[PointOverlay]:
+    marker = trace.get("marker") or {}
+    name = str(trace.get("name") or "Events")
+    x_items, y_items = _vector(x_values), _vector(values)
+    overlays: list[PointOverlay] = []
+    for index, (x_value, y_value) in enumerate(zip(x_items, y_items, strict=False)):
+        if not _finite(y_value):
+            continue
+        text = _item_at(trace.get("hovertext"), index) or _item_at(trace.get("text"), index) or ""
+        custom = _item_at(trace.get("customdata"), index)
+        point_color = _first_color(_item_at(marker.get("color"), index), fallback_color)
+        point_size = _item_at(marker.get("size"), index)
+        symbol = _item_at(marker.get("symbol"), index)
+        overlays.append({
+            "id": f"{name}-{index}",
+            "timestamp": _timestamp(x_value),
+            "value": float(y_value),
+            "label": name,
+            "description": str(text),
+            "group": name,
+            "kind": name.lower(),
+            "color": point_color,
+            "size": float(point_size) if _finite(point_size) else 10.0,
+            "shape": _overlay_shape(symbol),
+            "panel": panel,
+            "axis": axis,
+            "fields": _customdata_fields(custom),
+            "showTimestamp": True,
+            "showValue": True,
+            "showInLegend": bool(trace.get("showlegend", True)),
+        })
+    return overlays
+
+
+def _normalise_overlay(item: Mapping[str, Any]) -> PointOverlay:
+    output = _json_safe(dict(item))
+    if output.get("timestamp") is not None:
+        output["timestamp"] = _timestamp(output["timestamp"])
+    if _finite(output.get("value")):
+        output["value"] = float(output["value"])
+    for source, target in (
+        ("show_timestamp", "showTimestamp"),
+        ("show_value", "showValue"),
+        ("show_in_legend", "showInLegend"),
+    ):
+        if source in output and target not in output:
+            output[target] = bool(output.pop(source))
+    return output
+
+
+def _records(records: Any) -> list[Mapping[str, Any]]:
+    if hasattr(records, "to_dict"):
+        try:
+            converted = records.to_dict(orient="records")
+            if isinstance(converted, list):
+                return [item for item in converted if isinstance(item, Mapping)]
+        except TypeError:
+            pass
+    return [item for item in records if isinstance(item, Mapping)]
+
+
+def _mapped_value(
+    record: Mapping[str, Any],
+    spec: str | float | int | None,
+    fallback: Any,
+    *,
+    default_key: str,
+) -> Any:
+    if isinstance(spec, str) and spec in record:
+        return record[spec]
+    if spec is None or spec == default_key:
+        return fallback
+    return spec
+
+
+def _item_at(value: Any, index: int) -> Any:
+    if isinstance(value, Mapping) and value.get("bdata"):
+        items = _vector(value)
+        return items[index] if index < len(items) else None
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return value[index] if index < len(value) else None
+    return value
+
+
+def _customdata_fields(value: Any) -> list[TooltipField]:
+    if isinstance(value, Mapping):
+        return [{"label": str(key), "value": _json_safe(item)} for key, item in value.items()]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [
+            {"label": f"Detail {index + 1}", "value": _json_safe(item)}
+            for index, item in enumerate(value)
+        ]
+    return [{"label": "Detail", "value": _json_safe(value)}] if value is not None else []
+
+
+def _overlay_shape(value: Any) -> Literal["circle", "square", "diamond", "triangle-up", "triangle-down"]:
+    symbol = str(value or "").lower().replace("-open", "").replace("-dot", "")
+    if symbol in {"square", "diamond", "triangle-up", "triangle-down"}:
+        return symbol
+    return "circle"
 
 
 def _normalise_series(item: Mapping[str, Any], index: int) -> Series:
@@ -364,4 +590,14 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-__all__ = ["Point", "Series", "chart", "figure_payload", "plotly_chart"]
+__all__ = [
+    "Point",
+    "PointOverlay",
+    "Series",
+    "TooltipField",
+    "chart",
+    "figure_payload",
+    "plotly_chart",
+    "records_to_overlays",
+    "records_to_points",
+]
