@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "streamlit-live-canvas"
+version = "0.1.0"
+description = "A high-performance Streamlit Canvas chart for static and live time-series data"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Isaac Cohen" }]
+dependencies = ["streamlit >= 1.51"]
+
+[project.urls]
+Homepage = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas"
+Repository = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas.git"
+Issues = "https://github.com/Isaac-M-Cohen/Streamlit-Live-Canvas/issues"
+
+[project.optional-dependencies]
+devel = [
+  "build>=1.2",
+  "pytest>=8.2",
+  "twine>=6.0",
+  "wheel",
+]
+
+[tool.setuptools.packages.find]
+include = ["streamlit_live_canvas*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+streamlit_live_canvas = ["frontend/build/**/*", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: streamlit_live_canvas/frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build frontend
+        working-directory: streamlit_live_canvas/frontend
+        run: npm ci && npm run build
+      - name: Install package
+        run: pip install -e ".[devel]"
+      - name: Test
+        run: pytest -q
+      - name: Build distribution
+        run: python -m build
+      - name: Validate distribution
+        run: twine check dist/*
