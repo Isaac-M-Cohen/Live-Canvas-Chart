@@ -311,8 +311,9 @@ function render(state: ChartState): void {
   const span = Math.max(1, end - start);
   const plot = { left: 12, right: Math.max(60, width - 72), top: 8, bottom: height - 27 };
   const plotWidth = Math.max(1, plot.right - plot.left);
+  const timeWidth = Math.max(1, plotWidth - 8);
   const panels = panelLayout(state, plot.top, plot.bottom);
-  const x = (value: string | number) => plot.left + ((timestamp(value) - start) / span) * plotWidth;
+  const x = (value: string | number) => plot.left + ((timestamp(value) - start) / span) * timeWidth;
 
   context.save();
   context.strokeStyle = GRID;
@@ -337,7 +338,7 @@ function render(state: ChartState): void {
     const ratio = index / 3;
     const time = start + ratio * span;
     context.textAlign = index === 0 ? "left" : index === 3 ? "right" : "center";
-    context.fillText(formatTime(time, span), plot.left + ratio * plotWidth, height - 8);
+    context.fillText(formatTime(time, span), x(time), height - 8);
   }
   context.restore();
 
@@ -455,7 +456,7 @@ function render(state: ChartState): void {
   }
 
   if (state.pointerX !== null && state.pointerX >= plot.left && state.pointerX <= plot.right && primary) {
-    const target = start + ((state.pointerX - plot.left) / plotWidth) * span;
+    const target = start + ((state.pointerX - plot.left) / timeWidth) * span;
     const hover = primary.points.reduce<Point | null>((best, point) => {
       if (!best) return point;
       return Math.abs(timestamp(point.timestamp) - target) < Math.abs(timestamp(best.timestamp) - target) ? point : best;

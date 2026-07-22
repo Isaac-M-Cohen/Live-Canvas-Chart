@@ -73,3 +73,9 @@ def test_canvas_allows_page_wheel_scrolling() -> None:
     assert "preventDefault" not in source
     assert len(built_assets) == 1
     assert "preventDefault" not in built_assets[0].read_text()
+
+
+def test_latest_point_has_a_right_edge_gutter() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+
+    assert "const timeWidth = Math.max(1, plotWidth - 8)" in source
