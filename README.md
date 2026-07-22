@@ -24,7 +24,7 @@ Live Canvas Chart keeps incoming points in the browser, draws with HTML Canvas, 
 - Smooth Canvas lines, fills, markers, bars, multiple axes, and stacked panels
 - Automatic visible-range scaling
 - Button-only time zoom; mouse-wheel and trackpad gestures scroll the surrounding page normally
-- Hover inspection and toggleable overlays
+- Path-accurate hover markers that select the closest visible line, plus toggleable overlays
 - Horizontal rules, event lines, and shaded time bands
 - Web Component and typed React APIs
 - Plotly migration adapter for Streamlit applications

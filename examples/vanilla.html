@@ -27,11 +27,18 @@
         timestamp: new Date(now - (179 - index) * 60_000).toISOString(),
         value: 63_000 + index * 1.8 + Math.sin(index / 8) * 82,
       }));
+      const benchmark = points.map((point, index) => ({
+        timestamp: point.timestamp,
+        value: 62_900 + index * 2.4 + Math.cos(index / 15) * 22,
+      }));
       const chart = new LiveCanvasChart(document.querySelector("#chart"), {
         title: "BTC demonstration",
         valueFormat: "currency",
         windowMs: 3 * 60 * 60 * 1_000,
-        series: [{ name: "Price", color: "#ffad55", points, primary: true, fill: true, width: 2.4 }],
+        series: [
+          { name: "Price", color: "#ffad55", points, primary: true, fill: true, width: 2.4 },
+          { name: "Benchmark", color: "#67a9ff", points: benchmark, width: 2 },
+        ],
       });
 
       setInterval(() => {

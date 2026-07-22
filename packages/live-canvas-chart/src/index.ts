@@ -46,6 +46,7 @@ type ChartState = {
   hidden: Set<string>;
   view: [number, number] | null;
   pointerX: number | null;
+  pointerY: number | null;
   width: number;
   height: number;
   frame: number | null;
@@ -273,6 +274,58 @@ function tracePath(context: CanvasRenderingContext2D, coordinates: Array<[number
   if (coordinates.length > 1) context.lineTo(...coordinates[coordinates.length - 1]);
 }
 
+function pointOnTrace(
+  coordinates: Array<[number, number]>,
+  targetX: number,
+): [number, number] | null {
+  if (!coordinates.length) return null;
+  if (coordinates.length === 1) {
+    return Math.abs(targetX - coordinates[0][0]) <= 1 ? coordinates[0] : null;
+  }
+  const first = coordinates[0];
+  const last = coordinates[coordinates.length - 1];
+  if (targetX < first[0] || targetX > last[0]) return null;
+  if (targetX === first[0]) return first;
+
+  let start = first;
+  for (let index = 1; index < coordinates.length - 1; index += 1) {
+    const control = coordinates[index];
+    const next = coordinates[index + 1];
+    const end: [number, number] = [
+      (control[0] + next[0]) / 2,
+      (control[1] + next[1]) / 2,
+    ];
+    if (targetX <= end[0]) {
+      let low = 0;
+      let high = 1;
+      for (let step = 0; step < 16; step += 1) {
+        const middle = (low + high) / 2;
+        const inverse = 1 - middle;
+        const x = inverse * inverse * start[0]
+          + 2 * inverse * middle * control[0]
+          + middle * middle * end[0];
+        if (x < targetX) low = middle;
+        else high = middle;
+      }
+      const progress = (low + high) / 2;
+      const inverse = 1 - progress;
+      return [
+        targetX,
+        inverse * inverse * start[1]
+          + 2 * inverse * progress * control[1]
+          + progress * progress * end[1],
+      ];
+    }
+    start = end;
+  }
+  const width = last[0] - start[0];
+  const progress = width > 0 ? (targetX - start[0]) / width : 1;
+  return [
+    targetX,
+    start[1] + (last[1] - start[1]) * Math.max(0, Math.min(1, progress)),
+  ];
+}
+
 function displayPoints(points: Point[], start: number, end: number, maxCount: number): Point[] {
   const visible = points.filter((point) => {
     const time = timestamp(point.timestamp);
@@ -346,6 +399,12 @@ function render(state: ChartState): void {
   context.beginPath();
   context.rect(plot.left, plot.top, plotWidth, plot.bottom - plot.top);
   context.clip();
+  const renderedTraces: Array<{
+    line: Series;
+    panel: { id: string; top: number; bottom: number };
+    domain: [number, number];
+    coordinates: Array<[number, number]>;
+  }> = [];
   for (const band of data.bands || []) {
     const left = x(band.start);
     const right = x(band.end);
@@ -371,6 +430,9 @@ function render(state: ChartState): void {
     const points = displayPoints(line.points, start, end, Math.max(100, Math.floor(plotWidth)));
     const coordinates = points.map((point) => [x(point.timestamp), y(point.value)] as [number, number]);
     if (!coordinates.length) continue;
+    if (line.style !== "bar" && line.show_line !== false) {
+      renderedTraces.push({ line, panel, domain, coordinates });
+    }
     if (line.style === "bar") {
       const barWidth = Math.max(2, Math.min(18, plotWidth / Math.max(1, points.length) * 0.72));
       const zero = Math.max(panel.top, Math.min(panel.bottom, y(0)));
@@ -455,23 +517,58 @@ function render(state: ChartState): void {
     context.restore();
   }
 
-  if (state.pointerX !== null && state.pointerX >= plot.left && state.pointerX <= plot.right && primary) {
-    const target = start + ((state.pointerX - plot.left) / timeWidth) * span;
-    const hover = primary.points.reduce<Point | null>((best, point) => {
-      if (!best) return point;
-      return Math.abs(timestamp(point.timestamp) - target) < Math.abs(timestamp(best.timestamp) - target) ? point : best;
-    }, null);
-    if (hover) {
-      const px = x(hover.timestamp);
+  if (
+    state.pointerX !== null
+    && state.pointerY !== null
+    && state.pointerX >= plot.left
+    && state.pointerX <= plot.left + timeWidth
+    && state.pointerY >= plot.top
+    && state.pointerY <= plot.bottom
+  ) {
+    const px = state.pointerX;
+    let chosen: {
+      trace: (typeof renderedTraces)[number];
+      py: number;
+      value: number;
+      distance: number;
+    } | null = null;
+    for (const trace of renderedTraces) {
+      const point = pointOnTrace(trace.coordinates, px);
+      if (!point) continue;
+      const panelHeight = Math.max(1, trace.panel.bottom - trace.panel.top);
+      const value = trace.domain[0]
+        + ((trace.panel.bottom - point[1]) / panelHeight) * (trace.domain[1] - trace.domain[0]);
+      const candidate = {
+        trace,
+        py: point[1],
+        value,
+        distance: Math.abs(state.pointerY - point[1]),
+      };
+      if (!chosen || candidate.distance < chosen.distance) chosen = candidate;
+    }
+    if (chosen) {
+      const hoverTime = start + ((px - plot.left) / timeWidth) * span;
+      context.save();
       context.strokeStyle = "rgba(216,222,230,.32)";
+      context.lineWidth = 1;
       context.beginPath();
       context.moveTo(px, plot.top);
       context.lineTo(px, plot.bottom);
       context.stroke();
+      context.fillStyle = chosen.trace.line.color;
+      context.strokeStyle = "#090d10";
+      context.lineWidth = 1.7;
+      context.beginPath();
+      context.arc(px, chosen.py, 4, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.restore();
       state.tooltip.hidden = false;
-      state.tooltip.textContent = `${formatTime(timestamp(hover.timestamp), span)} · ${primary.name} ${formatValue(data, hover.value)}`;
+      state.tooltip.textContent = `${formatTime(hoverTime, span)} · ${chosen.trace.line.name} ${formatValue(data, chosen.value)}`;
       state.tooltip.style.left = `${Math.min(width - 90, Math.max(90, px))}px`;
-      state.tooltip.style.top = `${Math.max(32, plot.top + 30)}px`;
+      state.tooltip.style.top = `${Math.max(32, chosen.py - 8)}px`;
+    } else {
+      state.tooltip.hidden = true;
     }
   } else {
     state.tooltip.hidden = true;
@@ -619,7 +716,7 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
   if (!root || !canvas || !context || !tooltip || !quote || !meta || !legend || !status || !zoomIn || !zoomOut || !fitButton) return null;
   const state: ChartState = {
     parent, root, canvas, context, tooltip, quote, meta, legend, status,
-    data: normalise(data), hidden: new Set(), view: null, pointerX: null,
+    data: normalise(data), hidden: new Set(), view: null, pointerX: null, pointerY: null,
     width: 0, height: 0, frame: null, socket: null, reconnectTimer: null,
     resizeObserver: new ResizeObserver(() => resize(state)), closed: false,
   };
@@ -629,10 +726,12 @@ function mount(parent: ChartTarget, data: ChartData): ChartState | null {
   canvas.onpointermove = (event) => {
     const bounds = canvas.getBoundingClientRect();
     state.pointerX = event.clientX - bounds.left;
+    state.pointerY = event.clientY - bounds.top;
     schedule(state);
   };
   canvas.onpointerleave = () => {
     state.pointerX = null;
+    state.pointerY = null;
     tooltip.hidden = true;
     schedule(state);
   };

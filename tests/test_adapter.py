@@ -79,3 +79,12 @@ def test_latest_point_has_a_right_edge_gutter() -> None:
     source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
 
     assert "const timeWidth = Math.max(1, plotWidth - 8)" in source
+
+
+def test_hover_tracks_the_closest_visible_rendered_line() -> None:
+    source = (ROOT / "packages" / "live-canvas-chart" / "src" / "index.ts").read_text()
+
+    assert "pointOnTrace(trace.coordinates, px)" in source
+    assert "Math.abs(state.pointerY - point[1])" in source
+    assert "chosen.trace.line.name" in source
+    assert "context.arc(px, chosen.py, 4" in source

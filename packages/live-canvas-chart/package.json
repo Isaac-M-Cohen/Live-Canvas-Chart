@@ -1,6 +1,6 @@
 {
   "name": "live-canvas-chart",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A framework-neutral Canvas chart engine for static and high-frequency streaming time series.",
   "type": "module",
   "license": "MIT",
